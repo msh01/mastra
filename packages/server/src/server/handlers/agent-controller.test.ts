@@ -1,9 +1,10 @@
 import { Agent } from '@mastra/core/agent';
 import { AgentController } from '@mastra/core/agent-controller';
 import { Mastra } from '@mastra/core/mastra';
+import { RequestContext } from '@mastra/core/request-context';
 import { InMemoryStore } from '@mastra/core/storage';
 import { Workspace } from '@mastra/core/workspace';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { HTTPException } from '../http-exception';
 import {
@@ -11,11 +12,15 @@ import {
   CREATE_AGENT_CONTROLLER_SESSION_ROUTE,
   SEND_AGENT_CONTROLLER_MESSAGE_ROUTE,
   ABORT_AGENT_CONTROLLER_SESSION_ROUTE,
+  AGENT_CONTROLLER_TOOL_APPROVAL_ROUTE,
+  AGENT_CONTROLLER_TOOL_SUSPENSION_ROUTE,
   STREAM_AGENT_CONTROLLER_SESSION_ROUTE,
   GET_AGENT_CONTROLLER_SESSION_STATE_ROUTE,
   LIST_AGENT_CONTROLLER_MODES_ROUTE,
   LIST_AGENT_CONTROLLER_THREADS_ROUTE,
   SWITCH_AGENT_CONTROLLER_MODE_ROUTE,
+  STEER_AGENT_CONTROLLER_SESSION_ROUTE,
+  FOLLOW_UP_AGENT_CONTROLLER_SESSION_ROUTE,
   DELETE_AGENT_CONTROLLER_THREAD_ROUTE,
   RENAME_AGENT_CONTROLLER_THREAD_ROUTE,
   LIST_AGENT_CONTROLLER_THREAD_MESSAGES_ROUTE,
@@ -115,6 +120,110 @@ describe('agent-controller routes', () => {
         message: 'hello',
       } as any);
       expect(res).toEqual({ ok: true });
+    });
+  });
+
+  describe('requestContext forwarding', () => {
+    async function setupSession(resourceId = 'user-context') {
+      const controller = mastra.getAgentController('code')!;
+      await controller.init();
+      return controller.createSession({ resourceId, id: resourceId, ownerId: 'code' });
+    }
+
+    function makeRequestContext() {
+      const requestContext = new RequestContext();
+      requestContext.set('tenantId', 'acme');
+      return requestContext;
+    }
+
+    it('forwards requestContext to sendMessage', async () => {
+      const session = await setupSession();
+      const sendMessage = vi.spyOn(session, 'sendMessage').mockResolvedValue(undefined);
+      const requestContext = makeRequestContext();
+
+      await SEND_AGENT_CONTROLLER_MESSAGE_ROUTE.handler({
+        mastra,
+        controllerId: 'code',
+        resourceId: 'user-context',
+        message: 'hello',
+        requestContext,
+      } as any);
+
+      expect(sendMessage).toHaveBeenCalledWith({ content: 'hello', requestContext });
+    });
+
+    it('forwards requestContext to steering', async () => {
+      const session = await setupSession();
+      const steer = vi.spyOn(session, 'steer').mockResolvedValue(undefined);
+      const requestContext = makeRequestContext();
+
+      await STEER_AGENT_CONTROLLER_SESSION_ROUTE.handler({
+        mastra,
+        controllerId: 'code',
+        resourceId: 'user-context',
+        message: 'interrupt',
+        requestContext,
+      } as any);
+
+      expect(steer).toHaveBeenCalledWith({ content: 'interrupt', requestContext });
+    });
+
+    it('forwards requestContext to follow-up messages', async () => {
+      const session = await setupSession();
+      const followUp = vi.spyOn(session, 'followUp').mockResolvedValue(undefined);
+      const requestContext = makeRequestContext();
+
+      await FOLLOW_UP_AGENT_CONTROLLER_SESSION_ROUTE.handler({
+        mastra,
+        controllerId: 'code',
+        resourceId: 'user-context',
+        message: 'next',
+        requestContext,
+      } as any);
+
+      expect(followUp).toHaveBeenCalledWith({ content: 'next', requestContext });
+    });
+
+    it('forwards requestContext to tool approval responses', async () => {
+      const session = await setupSession();
+      const respondToToolApproval = vi.spyOn(session, 'respondToToolApproval').mockImplementation(() => {});
+      const requestContext = makeRequestContext();
+
+      await AGENT_CONTROLLER_TOOL_APPROVAL_ROUTE.handler({
+        mastra,
+        controllerId: 'code',
+        resourceId: 'user-context',
+        toolCallId: 'tool-1',
+        approved: true,
+        requestContext,
+      } as any);
+
+      expect(respondToToolApproval).toHaveBeenCalledWith({
+        toolCallId: 'tool-1',
+        decision: 'approve',
+        requestContext,
+      });
+    });
+
+    it('forwards requestContext to tool suspension responses', async () => {
+      const session = await setupSession();
+      const respondToToolSuspension = vi.spyOn(session, 'respondToToolSuspension').mockResolvedValue(undefined);
+      const requestContext = makeRequestContext();
+
+      await AGENT_CONTROLLER_TOOL_SUSPENSION_ROUTE.handler({
+        mastra,
+        controllerId: 'code',
+        resourceId: 'user-context',
+        toolCallId: 'tool-1',
+        resumeData: { ok: true },
+        requestContext,
+      } as any);
+
+      expect(respondToToolSuspension).toHaveBeenCalledWith({
+        toolCallId: 'tool-1',
+        resumeData: { ok: true },
+        requestContext,
+      });
     });
   });
 
