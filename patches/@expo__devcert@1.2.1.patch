@@ -1,0 +1,84 @@
+diff --git a/dist/platforms/win32.js b/dist/platforms/win32.js
+index a8da60e5d41faae65d52f80edba18528469b7a67..9655afa9a44c2af07e2bee41a3d8e42a1df4fe07 100644
+--- a/dist/platforms/win32.js
++++ b/dist/platforms/win32.js
+@@ -11,6 +11,19 @@ const utils_1 = require("../utils");
+ const user_interface_1 = __importDefault(require("../user-interface"));
+ const debug = (0, debug_1.default)('devcert:platforms:windows');
+ let encryptionKey;
++function deriveKeyAndIV(password) {
++    const derived = [];
++    let last = Buffer.alloc(0);
++    while (Buffer.concat(derived).length < 48) {
++        last = crypto_1.default.createHash('md5').update(Buffer.concat([last, password])).digest();
++        derived.push(last);
++    }
++    const buffer = Buffer.concat(derived);
++    return {
++        key: buffer.subarray(0, 32),
++        iv: buffer.subarray(32, 48)
++    };
++}
+ class WindowsPlatform {
+     constructor() {
+         this.HOST_FILE_PATH = 'C:\\Windows\\System32\\Drivers\\etc\\hosts';
+@@ -92,11 +105,13 @@ class WindowsPlatform {
+         (0, fs_1.writeFileSync)(filepath, encryptedContents);
+     }
+     encrypt(text, key) {
+-        let cipher = crypto_1.default.createCipher('aes256', Buffer.from(key));
++        const derived = deriveKeyAndIV(Buffer.from(key));
++        let cipher = crypto_1.default.createCipheriv('aes-256-cbc', derived.key, derived.iv);
+         return cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
+     }
+     decrypt(encrypted, key) {
+-        let decipher = crypto_1.default.createDecipher('aes256', Buffer.from(key));
++        const derived = deriveKeyAndIV(Buffer.from(key));
++        let decipher = crypto_1.default.createDecipheriv('aes-256-cbc', derived.key, derived.iv);
+         return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
+     }
+ }
+diff --git a/src/platforms/win32.ts b/src/platforms/win32.ts
+index 0d4d5c67e35407a4c79617b5d8056b3b038969b9..8be5956ab665fedf09adb48532bdd84cb9828027 100644
+--- a/src/platforms/win32.ts
++++ b/src/platforms/win32.ts
+@@ -11,6 +11,22 @@ const debug = createDebug('devcert:platforms:windows');
+ 
+ let encryptionKey: string;
+ 
++function deriveKeyAndIV(password: Buffer) {
++  const derived: Buffer[] = [];
++  let last = Buffer.alloc(0);
++
++  while (Buffer.concat(derived).length < 48) {
++    last = crypto.createHash('md5').update(Buffer.concat([last, password])).digest();
++    derived.push(last);
++  }
++
++  const buffer = Buffer.concat(derived);
++  return {
++    key: buffer.subarray(0, 32),
++    iv: buffer.subarray(32, 48)
++  };
++}
++
+ export default class WindowsPlatform implements Platform {
+ 
+   private HOST_FILE_PATH = 'C:\\Windows\\System32\\Drivers\\etc\\hosts';
+@@ -94,12 +110,14 @@ export default class WindowsPlatform implements Platform {
+   }
+ 
+   private encrypt(text: string, key: string) {
+-    let cipher = crypto.createCipher('aes256', Buffer.from(key));
++    const derived = deriveKeyAndIV(Buffer.from(key));
++    let cipher = crypto.createCipheriv('aes-256-cbc', derived.key, derived.iv);
+     return cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
+   }
+ 
+   private decrypt(encrypted: string, key: string) {
+-    let decipher = crypto.createDecipher('aes256', Buffer.from(key));
++    const derived = deriveKeyAndIV(Buffer.from(key));
++    let decipher = crypto.createDecipheriv('aes-256-cbc', derived.key, derived.iv);
+     return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
+   }
+ 

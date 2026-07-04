@@ -181,6 +181,7 @@ packageExtensionsChecksum: sha256-oFdDQ7+fs6oE3UbVz0Zzez0koQ0KHzMX5VCIoGptUHs=
 
 patchedDependencies:
   '@changesets/get-dependents-graph@2.1.4': eb65c5cbf43c61ce6dcb0c77fa30d9aebcdffa3a70dee1faefc4cde4125f28fa
+  '@expo/devcert@1.2.1': 4ffe08bec27b78fbf959ae952460b268bf584f8f744c72d13e936d8ff56659f6
   tsup@8.5.1: 78092cc873f6c3c61ff4846b4b326faa7db54bb3c1506c510614d708601e2b7f
 
 importers:
@@ -3782,7 +3783,7 @@ importers:
         version: 1.3.0
       '@expo/devcert':
         specifier: ^1.2.1
-        version: 1.2.1
+        version: 1.2.1(patch_hash=4ffe08bec27b78fbf959ae952460b268bf584f8f744c72d13e936d8ff56659f6)
       '@mastra/deployer':
         specifier: workspace:^
         version: link:../deployer
@@ -13090,7 +13091,7 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@expo/devcert@1.2.1':
+  '@expo/devcert@1.2.1(patch_hash=4ffe08bec27b78fbf959ae952460b268bf584f8f744c72d13e936d8ff56659f6)':
     resolution: {integrity: sha512-qC4eaxmKMTmJC2ahwyui6ud8f3W60Ss7pMkpBq40Hu3zyiAaugPXnZ24145U7K36qO9UHdZUVxsCvIpz2RYYCA==}
 
   '@expo/sudo-prompt@9.3.2':
@@ -34670,7 +34671,7 @@ snapshots:
     optionalDependencies:
       '@noble/hashes': 2.2.0
 
-  '@expo/devcert@1.2.1':
+  '@expo/devcert@1.2.1(patch_hash=4ffe08bec27b78fbf959ae952460b268bf584f8f744c72d13e936d8ff56659f6)':
     dependencies:
       '@expo/sudo-prompt': 9.3.2
       debug: 3.2.7
