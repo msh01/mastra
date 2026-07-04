@@ -12,6 +12,7 @@ import { z } from 'zod/v4';
 import { Mastra } from '../../mastra';
 import { InMemoryStore } from '../../storage';
 import { createTool } from '../../tools';
+import { createStep, createWorkflow } from '../../workflows';
 import type { WorkflowRunState } from '../../workflows/types';
 import { Agent } from '../agent';
 import { convertArrayToReadableStream, MockLanguageModelV2 } from './mock-model';
@@ -112,6 +113,56 @@ function createParallelToolCallsModel() {
               toolCallId: 'call-B',
               toolName: 'toolB',
               input: '{"name":"B"}',
+              providerExecuted: false,
+            },
+            {
+              type: 'finish',
+              finishReason: 'tool-calls',
+              usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+            },
+          ]),
+        };
+      }
+      return {
+        rawCall: { rawPrompt: null, rawSettings: {} },
+        warnings: [],
+        stream: convertArrayToReadableStream([
+          { type: 'stream-start', warnings: [] },
+          { type: 'response-metadata', id: 'id-final', modelId: 'mock-model-id', timestamp: new Date(0) },
+          { type: 'text-start', id: 'text-1' },
+          { type: 'text-delta', id: 'text-1', delta: 'done' },
+          { type: 'text-end', id: 'text-1' },
+          { type: 'finish', finishReason: 'stop', usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 } },
+        ]),
+      };
+    },
+  });
+}
+
+function createParallelSameToolCallsModel(toolName: string, createInput = (name: string) => ({ name })) {
+  let callCount = 0;
+  return new MockLanguageModelV2({
+    doStream: async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          rawCall: { rawPrompt: null, rawSettings: {} },
+          warnings: [],
+          stream: convertArrayToReadableStream([
+            { type: 'stream-start', warnings: [] },
+            { type: 'response-metadata', id: 'id-0', modelId: 'mock-model-id', timestamp: new Date(0) },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-A',
+              toolName,
+              input: JSON.stringify(createInput('A')),
+              providerExecuted: false,
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-B',
+              toolName,
+              input: JSON.stringify(createInput('B')),
               providerExecuted: false,
             },
             {
@@ -441,6 +492,102 @@ describe.each([
           suspendPayload: expect.objectContaining({ message: 'Please provide the name of the user' }),
         }),
       ]);
+    }, 30000);
+
+    it('resumes parallel suspend()-style workflow calls to the same tool independently', async () => {
+      const getUserStep = createStep({
+        id: 'get-user',
+        inputSchema: z.object({ name: z.string() }),
+        outputSchema: z.object({ name: z.string(), email: z.string() }),
+        suspendSchema: z.object({ message: z.string() }),
+        resumeSchema: z.object({ name: z.string() }),
+        execute: async ({ inputData, resumeData, suspend }) => {
+          if (!resumeData) {
+            return (await suspend({ message: `Please confirm ${inputData.name}` })) as never;
+          }
+          return { name: resumeData.name, email: `${resumeData.name}@mail.com` };
+        },
+      });
+      const getUserWorkflow = createWorkflow({
+        id: 'getUserWorkflow',
+        description: 'Returns a user, suspends to ask for confirmation',
+        inputSchema: z.object({ name: z.string() }),
+        outputSchema: z.object({ name: z.string(), email: z.string() }),
+      })
+        .then(getUserStep)
+        .commit();
+
+      const agent = new Agent({
+        id: 'suspending-agent',
+        name: 'Suspending Agent',
+        instructions: 'You find users.',
+        model: createParallelSameToolCallsModel('workflow-getUserWorkflow', name => ({ inputData: { name } })),
+        workflows: { getUserWorkflow },
+      });
+      new Mastra({ agents: { agent }, logger: false, storage: new InMemoryStore() });
+
+      const stream = await agent.stream('Find both users', {
+        memory: { thread: 'thread-same-tool', resource: 'resource-1' },
+      });
+      for await (const _chunk of stream.fullStream) {
+        // consume until the run suspends
+      }
+
+      const firstSuspension = await agent.listSuspendedRuns({ threadId: 'thread-same-tool' });
+      expect(firstSuspension.runs).toHaveLength(1);
+      expect(firstSuspension.runs[0]!.runId).toBe(stream.runId);
+      if (evented) {
+        expect(firstSuspension.runs[0]!.toolCalls).toEqual([
+          expect.objectContaining({
+            toolCallId: 'call-A',
+            toolName: 'workflow-getUserWorkflow',
+            suspendPayload: expect.objectContaining({ message: 'Please confirm A' }),
+          }),
+          expect.objectContaining({
+            toolCallId: 'call-B',
+            toolName: 'workflow-getUserWorkflow',
+            suspendPayload: expect.objectContaining({ message: 'Please confirm B' }),
+          }),
+        ]);
+      } else {
+        expect(firstSuspension.runs[0]!.toolCalls).toEqual([
+          expect.objectContaining({
+            toolCallId: 'call-A',
+            toolName: 'workflow-getUserWorkflow',
+            suspendPayload: expect.objectContaining({ message: 'Please confirm A' }),
+          }),
+        ]);
+      }
+
+      const afterFirst = await agent.resumeStream({ name: 'A' }, { runId: stream.runId, toolCallId: 'call-A' });
+      const afterFirstChunks: any[] = [];
+      for await (const _chunk of afterFirst.fullStream) {
+        afterFirstChunks.push(_chunk);
+        // consume until the remaining tool call keeps the run suspended
+      }
+      expect(afterFirstChunks.filter(chunk => chunk.type === 'tool-error')).toHaveLength(0);
+
+      const secondSuspension = await agent.listSuspendedRuns({ threadId: 'thread-same-tool' });
+      if (secondSuspension.runs.length > 0) {
+        expect(secondSuspension.runs).toHaveLength(1);
+        expect(secondSuspension.runs[0]!.toolCalls).toEqual([
+          expect.objectContaining({
+            toolCallId: 'call-B',
+            toolName: 'workflow-getUserWorkflow',
+            suspendPayload: expect.objectContaining({ message: 'Please confirm B' }),
+          }),
+        ]);
+
+        const afterSecond = await agent.resumeStream({ name: 'B' }, { runId: stream.runId, toolCallId: 'call-B' });
+        const afterSecondChunks: any[] = [];
+        for await (const _chunk of afterSecond.fullStream) {
+          afterSecondChunks.push(_chunk);
+          // consume to completion
+        }
+        expect(afterSecondChunks.filter(chunk => chunk.type === 'tool-error')).toHaveLength(0);
+      }
+
+      expect((await agent.listSuspendedRuns({ threadId: 'thread-same-tool' })).runs).toHaveLength(0);
     }, 30000);
 
     it('returns an empty list once the run is resumed and completes', async () => {

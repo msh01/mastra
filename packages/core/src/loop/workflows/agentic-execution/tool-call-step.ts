@@ -252,7 +252,10 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
 
         // Match this call's data part. Prefer toolCallId; otherwise fall back to toolName so the
         // autoResume (fresh-turn) and legacy paths still resolve.
-        const partMatches = (data: any): boolean => data?.toolCallId === toolCallId || data?.toolName === toolName;
+        const partMatches = (data: any): boolean => {
+          if (data?.toolCallId) return data.toolCallId === toolCallId;
+          return data?.toolName === toolName;
+        };
 
         const getMetadata = (message: MastraDBMessage) => {
           const content = message.content;
@@ -442,7 +445,10 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
           resumeDataFromArgs = resumeDataFromInput;
         }
 
-        const resumeData = resumeDataFromArgs ?? workflowResumeData;
+        const suspendDataToolCallId = (suspendData as any)?.toolCallId;
+        const isMismatchedWorkflowResume =
+          !!workflowResumeData && !!suspendDataToolCallId && suspendDataToolCallId !== inputData.toolCallId;
+        const resumeData = isMismatchedWorkflowResume ? undefined : (resumeDataFromArgs ?? workflowResumeData);
 
         const isResumeToolCall = !!resumeDataFromArgs;
 
@@ -742,7 +748,10 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
                   toolCallSuspended: suspendPayload,
                   __streamState: streamState.serialize(),
                   __agentId: agentId,
+                  toolCallId: inputData.toolCallId,
                   toolName: inputData.toolName,
+                  args: inputData.args,
+                  suspendedToolRunId: options?.runId,
                   resumeLabel: options?.resumeLabel,
                 },
                 {
@@ -767,7 +776,13 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
           // resume the wrong call (or fail with AGENT_RESUME_NO_SNAPSHOT_FOUND). The message
           // metadata / data parts remain as a fallback for page-refresh resumes where the
           // workflow snapshot is unavailable.
-          let suspendedToolRunId = (suspendData as any)?.suspendedToolRunId || '';
+          if (typeof args === 'object' && args !== null) {
+            delete args.suspendedToolRunId;
+          }
+          let suspendedToolRunId =
+            !suspendDataToolCallId || suspendDataToolCallId === inputData.toolCallId
+              ? (suspendData as any)?.suspendedToolRunId || ''
+              : '';
           const shouldUsePartsFallback = !isResumeToolCall || !args.suspendedToolRunId;
           const messages = messageList.get.all.db();
           const assistantMessages = [...messages].reverse().filter(message => message.role === 'assistant');
@@ -785,11 +800,15 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
               //      Also covers legacy metadata that was keyed by toolName.
               const entry =
                 pendingOrSuspendedTools[inputData.toolCallId] ??
-                Object.values(pendingOrSuspendedTools).find((e: any) => e?.toolCallId === inputData.toolCallId) ??
-                pendingOrSuspendedTools[inputData.toolName] ??
-                Object.values(pendingOrSuspendedTools).find((e: any) => e?.toolName === inputData.toolName);
-              if (entry) {
-                suspendedToolRunId = entry.runId;
+                Object.values(pendingOrSuspendedTools).find((e: any) => e?.toolCallId === inputData.toolCallId);
+              const legacyEntry =
+                !entry && !Object.values(pendingOrSuspendedTools).some((e: any) => e?.toolCallId)
+                  ? (pendingOrSuspendedTools[inputData.toolName] ??
+                    Object.values(pendingOrSuspendedTools).find((e: any) => e?.toolName === inputData.toolName))
+                  : undefined;
+              const resolvedEntry = entry ?? legacyEntry;
+              if (resolvedEntry) {
+                suspendedToolRunId = resolvedEntry.runId;
                 break;
               }
             }
@@ -805,7 +824,9 @@ export function createToolCallStep<Tools extends ToolSet = ToolSet, OUTPUT = und
                 // that may not carry a toolCallId.
                 const foundTool =
                   dataToolSuspendedParts.find((part: any) => part.data.toolCallId === inputData.toolCallId) ??
-                  dataToolSuspendedParts.find((part: any) => part.data.toolName === inputData.toolName);
+                  (!dataToolSuspendedParts.some((part: any) => part.data.toolCallId)
+                    ? dataToolSuspendedParts.find((part: any) => part.data.toolName === inputData.toolName)
+                    : undefined);
                 if (foundTool) {
                   suspendedToolRunId = (foundTool as any).data.runId;
                   break;

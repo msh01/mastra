@@ -6309,11 +6309,8 @@ export class Agent<
 
   #getSuspendedToolCalls(existingSnapshot: WorkflowRunState | null | undefined): AgentRunToolCall[] {
     const toolCalls: AgentRunToolCall[] = [];
-    for (const key in existingSnapshot?.context) {
-      const step = existingSnapshot?.context[key];
-      if (step?.status !== 'suspended') continue;
-      const payload = step.suspendPayload;
-      if (!payload) continue;
+    const addSuspendedToolCall = (payload: any) => {
+      if (!payload) return;
 
       if (payload.requireToolApproval) {
         toolCalls.push({
@@ -6326,9 +6323,42 @@ export class Agent<
         toolCalls.push({
           toolCallId: payload.toolCallId,
           toolName: payload.toolName,
+          args: payload.args,
           requiresApproval: false,
           suspendPayload: payload.toolCallSuspended,
         });
+      }
+    };
+
+    const getSuspendedForeachPayloads = (step: any, payload: any): any[] => {
+      const foreachOutput = payload?.__workflow_meta?.foreachOutput ?? step.output;
+      if (!foreachOutput || typeof foreachOutput !== 'object') return [];
+
+      const values = Array.isArray(foreachOutput)
+        ? foreachOutput
+        : Object.keys(foreachOutput)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(key => foreachOutput[key]);
+
+      return values
+        .filter(result => result?.status === 'suspended' && result.suspendPayload)
+        .map(result => result.suspendPayload)
+        .filter(payload => payload?.toolCallSuspended && !payload?.requireToolApproval);
+    };
+
+    for (const key in existingSnapshot?.context) {
+      const step = existingSnapshot?.context[key];
+      if (step?.status !== 'suspended') continue;
+      const payload = step.suspendPayload;
+      if (!payload) continue;
+
+      const foreachPayloads = getSuspendedForeachPayloads(step, payload);
+      if (foreachPayloads.length > 0) {
+        for (const foreachPayload of foreachPayloads) {
+          addSuspendedToolCall(foreachPayload);
+        }
+      } else {
+        addSuspendedToolCall(payload);
       }
     }
 
