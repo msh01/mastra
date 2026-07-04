@@ -2388,6 +2388,77 @@ describe('Memory', () => {
       expect(config.lastMessages).toBe(10);
     });
 
+    it('getContext should honor runtime lastMessages: false when observational memory is disabled', async () => {
+      const storage = new InMemoryStore();
+      const memoryWithOm = new Memory({
+        storage,
+        options: {
+          lastMessages: 30,
+          observationalMemory: true,
+        },
+      });
+      const memoryStore = await storage.getStore('memory');
+
+      await memoryWithOm.saveThread({
+        thread: {
+          id: threadId,
+          resourceId,
+          title: 'Test Thread',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      await memoryWithOm.saveMessages({
+        messages: [
+          {
+            id: 'om-msg-1',
+            threadId,
+            resourceId,
+            role: 'user',
+            content: { format: 2, parts: [{ type: 'text', text: 'Visible only when OM recall is active' }] },
+            createdAt: new Date('2024-01-01T10:00:00Z'),
+          },
+        ],
+      });
+      await memoryStore?.initializeObservationalMemory({
+        threadId,
+        resourceId,
+        scope: 'thread',
+        config: {},
+      });
+
+      const context = await memoryWithOm.getContext({
+        threadId,
+        resourceId,
+        memoryConfig: { lastMessages: false, observationalMemory: false },
+      });
+
+      expect(context.messages).toEqual([]);
+      expect(context.omRecord).toBeNull();
+      expect(context.hasObservations).toBe(false);
+    });
+
+    it('getInputProcessors should honor runtime observationalMemory: false', async () => {
+      const memoryWithOm = new Memory({
+        storage: new InMemoryStore(),
+        options: {
+          lastMessages: 30,
+          observationalMemory: true,
+        },
+      });
+      const requestContext = new RequestContext();
+      requestContext.set('MastraMemory', {
+        thread: { id: threadId, resourceId },
+        resourceId,
+        memoryConfig: { lastMessages: false, observationalMemory: false },
+      });
+
+      const processors = await memoryWithOm.getInputProcessors([], requestContext);
+
+      expect(processors.find(p => p.id === 'observational-memory')).toBeUndefined();
+      expect(processors.find(p => p.id === 'message-history')).toBeUndefined();
+    });
+
     it('getInputProcessors should return no MessageHistory processor when lastMessages: false', async () => {
       const processors = await memory.getInputProcessors();
 

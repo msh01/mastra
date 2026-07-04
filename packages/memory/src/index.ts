@@ -1536,7 +1536,8 @@ ${workingMemory}`;
     let continuationMessage: MastraDBMessage | undefined;
     let otherThreadsContext: string | undefined;
 
-    const omEngine = await this.omEngine;
+    const omConfig = normalizeObservationalMemoryConfig(config.observationalMemory);
+    const omEngine = omConfig ? await this.omEngine : null;
     if (omEngine) {
       omRecord = await omEngine.getRecord(threadId, resourceId);
       if (omRecord?.activeObservations) {
@@ -2999,14 +3000,8 @@ Notes:
     if (hasObservationalMemory) return null;
 
     const runtimeMemory = context?.get('MastraMemory') as { memoryConfig?: RuntimeMemoryConfig } | undefined;
-    const runtimeObservationalMemory = normalizeObservationalMemoryConfig(
-      runtimeMemory?.memoryConfig?.observationalMemory,
-    );
-    const threadConfig = runtimeObservationalMemory
-      ? this.getMergedThreadConfig({
-          ...runtimeMemory?.memoryConfig,
-          observationalMemory: runtimeObservationalMemory,
-        } as MemoryConfigInternal)
+    const threadConfig = runtimeMemory?.memoryConfig
+      ? this.getMergedThreadConfig(runtimeMemory.memoryConfig as MemoryConfigInternal)
       : this.threadConfig;
 
     const effectiveConfig = normalizeObservationalMemoryConfig(threadConfig.observationalMemory);
