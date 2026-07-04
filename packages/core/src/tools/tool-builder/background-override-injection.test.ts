@@ -4,6 +4,7 @@ import { z as z3 } from 'zod/v3';
 import { z as z4 } from 'zod/v4';
 import { RequestContext } from '../../request-context';
 import { isStandardSchemaWithJSON, standardSchemaToJSONSchema } from '../../schema';
+import type { StandardSchemaWithJSON } from '../../schema';
 import { createTool } from '../../tools';
 import { CoreToolBuilder } from './builder';
 
@@ -206,6 +207,99 @@ describe('CoreToolBuilder background override injection', () => {
       const properties = extractJsonProperties(tool);
       expect(properties).toHaveProperty('query');
       expect(properties).toHaveProperty('_background');
+    });
+  });
+
+  describe('edge-safe Standard Schema input', () => {
+    function edgeSafeSchema(): StandardSchemaWithJSON {
+      const json = {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+        additionalProperties: false,
+      };
+
+      return {
+        '~standard': {
+          version: 1,
+          vendor: 'edge-safe-test-schema',
+          validate: (input: unknown) => {
+            if (!input || typeof input !== 'object' || Array.isArray(input)) {
+              return { issues: [{ message: 'input must be an object', path: [] }] };
+            }
+            const value = input as Record<string, unknown>;
+            if (typeof value.query !== 'string') {
+              return { issues: [{ message: 'query must be a string', path: ['query'] }] };
+            }
+            return { value };
+          },
+          jsonSchema: {
+            input: () => json,
+            output: () => json,
+          },
+        },
+      } as StandardSchemaWithJSON;
+    }
+
+    it('validates injected override fields without compiling a fresh JSON Schema validator', async () => {
+      const execute = vi.fn().mockResolvedValue({ ok: true });
+      const tool = createTool({
+        id: 'edge-safe-tool',
+        description: 'Edge-safe Standard Schema tool',
+        inputSchema: edgeSafeSchema(),
+        execute,
+      });
+
+      const builder = new CoreToolBuilder({
+        originalTool: tool,
+        options: baseOptions(),
+        backgroundTaskEnabled: true,
+      });
+
+      const built = builder.build();
+      const OriginalFunction = globalThis.Function;
+      vi.stubGlobal(
+        'Function',
+        vi.fn(() => {
+          throw new Error('Code generation from strings disallowed for this context');
+        }),
+      );
+      try {
+        await expect(
+          built.execute!(
+            { query: 'docs', _background: { enabled: true, timeoutMs: 1000, maxRetries: 2 } },
+            { toolCallId: 'call-1', messages: [] },
+          ),
+        ).resolves.toEqual({ ok: true });
+      } finally {
+        vi.stubGlobal('Function', OriginalFunction);
+      }
+
+      expect(execute).toHaveBeenCalledWith(
+        { query: 'docs', _background: { enabled: true, timeoutMs: 1000, maxRetries: 2 } },
+        expect.objectContaining({ requestContext: expect.any(RequestContext) }),
+      );
+    });
+
+    it('still rejects malformed injected override fields on the edge-safe path', async () => {
+      const tool = createTool({
+        id: 'edge-safe-tool',
+        description: 'Edge-safe Standard Schema tool',
+        inputSchema: edgeSafeSchema(),
+        execute: vi.fn(),
+      });
+
+      new CoreToolBuilder({
+        originalTool: tool,
+        options: baseOptions(),
+        backgroundTaskEnabled: true,
+      });
+
+      const schema = tool.inputSchema as any;
+      const result = schema['~standard'].validate({ query: 'docs', _background: { enabled: 'yes' } });
+      const resolved = result && typeof result.then === 'function' ? await result : result;
+      expect(resolved).toHaveProperty('issues');
+      expect((resolved as { issues: readonly unknown[] }).issues.length).toBeGreaterThan(0);
     });
   });
 

@@ -23,7 +23,7 @@ import type { AnySpan } from '../../observability';
 import { executeWithContext } from '../../observability/utils';
 import { RequestContext } from '../../request-context';
 import { isStandardSchemaWithJSON, toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
-import type { StandardSchemaWithJSON } from '../../schema';
+import type { StandardSchemaIssue, StandardSchemaWithJSON } from '../../schema';
 import { getNeedsApprovalFn, isVercelTool, isProviderDefinedTool } from '../../tools/toolchecks';
 import type { ToolOptions } from '../../utils';
 import { safeStringify } from '../../utils';
@@ -109,6 +109,75 @@ function isZodV4Schema(schema: unknown): boolean {
   return !!def && typeof def.type === 'string' && !def.typeName;
 }
 
+function createIssue(message: string, path: StandardSchemaIssue['path']): StandardSchemaIssue {
+  return { message, path };
+}
+
+function validateInjectedOverrideFields(
+  injected: Record<string, unknown>,
+  injectedKeys: readonly string[],
+): { value: Record<string, unknown> } | { issues: StandardSchemaIssue[] } {
+  const issues: StandardSchemaIssue[] = [];
+  const value: Record<string, unknown> = {};
+
+  for (const [key, fieldValue] of Object.entries(injected)) {
+    if (!injectedKeys.includes(key)) {
+      issues.push(createIssue(`Unknown injected override field: ${key}`, [key]));
+      continue;
+    }
+
+    if (key === '_background') {
+      if (fieldValue === undefined) {
+        continue;
+      }
+      if (fieldValue === null || typeof fieldValue !== 'object' || Array.isArray(fieldValue)) {
+        issues.push(createIssue('_background must be an object', [key]));
+        continue;
+      }
+
+      const background = fieldValue as Record<string, unknown>;
+      const backgroundValue: Record<string, unknown> = {};
+      for (const [backgroundKey, backgroundFieldValue] of Object.entries(background)) {
+        if (backgroundKey === 'enabled') {
+          if (backgroundFieldValue !== undefined && typeof backgroundFieldValue !== 'boolean') {
+            issues.push(createIssue('_background.enabled must be a boolean', [key, backgroundKey]));
+            continue;
+          }
+          if (backgroundFieldValue !== undefined) backgroundValue.enabled = backgroundFieldValue;
+          continue;
+        }
+        if (backgroundKey === 'timeoutMs' || backgroundKey === 'maxRetries') {
+          if (backgroundFieldValue !== undefined && typeof backgroundFieldValue !== 'number') {
+            issues.push(createIssue(`_background.${backgroundKey} must be a number`, [key, backgroundKey]));
+            continue;
+          }
+          if (backgroundFieldValue !== undefined) backgroundValue[backgroundKey] = backgroundFieldValue;
+          continue;
+        }
+        issues.push(createIssue(`Unknown _background field: ${backgroundKey}`, [key, backgroundKey]));
+      }
+
+      value._background = backgroundValue;
+      continue;
+    }
+
+    if (key === 'suspendedToolRunId') {
+      if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== 'string') {
+        issues.push(createIssue('suspendedToolRunId must be a string or null', [key]));
+        continue;
+      }
+      value.suspendedToolRunId = fieldValue;
+      continue;
+    }
+
+    if (key === 'resumeData') {
+      value.resumeData = fieldValue;
+    }
+  }
+
+  return issues.length ? { issues } : { value };
+}
+
 /**
  * Build a Standard Schema that:
  *  - exposes the spliced JSON Schema (with `_background`/`suspendedToolRunId`/
@@ -136,25 +205,6 @@ function buildJsonOverrideSchema(
   const original = originalSchema as { '~standard'?: { validate?: (v: unknown) => any } } | undefined;
   const originalValidate = original?.['~standard']?.validate?.bind(original['~standard']);
 
-  // Standard Schema for *just* the injected override fields, so we can validate
-  // malformed override payloads (e.g. `_background: { enabled: "yes" }`) before
-  // merging them into the result. Matches the Zod v4 `.extend()` path's
-  // behavior, which validates these fields as part of the object.
-  // See https://github.com/mastra-ai/mastra/pull/16915#discussion_r3282600679
-  const splicedProperties =
-    splicedJsonSchema && typeof splicedJsonSchema === 'object' && 'properties' in splicedJsonSchema
-      ? ((splicedJsonSchema.properties ?? {}) as Record<string, JSONSchema7Definition>)
-      : {};
-  const injectedProperties: Record<string, JSONSchema7Definition> = {};
-  for (const key of injectedKeys) {
-    if (splicedProperties[key] !== undefined) injectedProperties[key] = splicedProperties[key];
-  }
-  const injectedValidator = toStandardSchema({
-    type: 'object',
-    properties: injectedProperties,
-    additionalProperties: false,
-  } as any);
-
   const stripInjected = (input: unknown) => {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return { stripped: input, injected: {} };
     const injected: Record<string, unknown> = {};
@@ -176,7 +226,7 @@ function buildJsonOverrideSchema(
           | Promise<{ value: unknown } | { issues: readonly unknown[] }>)
       : fallback['~standard'].validate(stripped);
 
-    const injectedResult = injectedValidator['~standard'].validate(injected);
+    const injectedResult = validateInjectedOverrideFields(injected, injectedKeys);
 
     const combine = (
       base: { value: unknown } | { issues: readonly unknown[] },
@@ -200,12 +250,11 @@ function buildJsonOverrideSchema(
     };
 
     const baseIsPromise = baseResult && typeof (baseResult as Promise<unknown>).then === 'function';
-    const injIsPromise = injectedResult && typeof (injectedResult as Promise<unknown>).then === 'function';
-    if (baseIsPromise || injIsPromise) {
-      return Promise.all([baseResult, injectedResult]).then(([b, i]) =>
+    if (baseIsPromise) {
+      return Promise.resolve(baseResult).then(b =>
         combine(
           b as { value: unknown } | { issues: readonly unknown[] },
-          i as { value: unknown } | { issues: readonly unknown[] },
+          injectedResult as { value: unknown } | { issues: readonly unknown[] },
         ),
       );
     }
