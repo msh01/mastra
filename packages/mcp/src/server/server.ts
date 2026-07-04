@@ -1498,6 +1498,7 @@ export class MCPServer extends MCPServerBase {
    * @param options.options.enableJsonResponse - If true, return JSON instead of SSE streaming
    * @param options.options.eventStore - Event store for message resumability
    * @param options.options.serverless - If true, run in stateless mode without session management (ideal for serverless environments)
+   * @param options.options.serverlessStreaming - If true, stateless requests use request-scoped SSE so progress notifications can stream before the final response
    *
    * @throws {MastraError} If HTTP connection setup fails
    *
@@ -1535,7 +1536,7 @@ export class MCPServer extends MCPServerBase {
    *         httpPath: '/mcp',
    *         req: request,
    *         res: response,
-   *         options: { serverless: true },
+   *         options: { serverless: true, serverlessStreaming: true },
    *       });
    *     }
    *     return new Response('Not found', { status: 404 });
@@ -1554,7 +1555,7 @@ export class MCPServer extends MCPServerBase {
     httpPath: string;
     req: http.IncomingMessage;
     res: http.ServerResponse<http.IncomingMessage>;
-    options?: Partial<StreamableHTTPServerTransportOptions> & { serverless?: boolean };
+    options?: Partial<StreamableHTTPServerTransportOptions> & { serverless?: boolean; serverlessStreaming?: boolean };
   }) {
     this.logger.debug('Received HTTP request', { method: req.method, path: url.pathname });
 
@@ -1571,7 +1572,7 @@ export class MCPServer extends MCPServerBase {
 
     if (isStatelessMode) {
       this.logger.debug('Running in stateless mode');
-      await this.handleServerlessRequest(req, res);
+      await this.handleServerlessRequest(req, res, options);
       return;
     }
 
@@ -1745,7 +1746,11 @@ export class MCPServer extends MCPServerBase {
    * @param res - HTTP response object
    * @private
    */
-  private async handleServerlessRequest(req: http.IncomingMessage, res: http.ServerResponse<http.IncomingMessage>) {
+  private async handleServerlessRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse<http.IncomingMessage>,
+    options?: Partial<StreamableHTTPServerTransportOptions> & { serverless?: boolean; serverlessStreaming?: boolean },
+  ) {
     try {
       this.logger.debug('Received serverless request', { method: req.method });
 
@@ -1762,12 +1767,15 @@ export class MCPServer extends MCPServerBase {
       // Create a transient server instance for this single request
       const transientServer = this.createServerInstance();
 
-      // Create a one-time transport that handles this single request
-      // sessionIdGenerator: undefined disables session management entirely
-      // enableJsonResponse: true forces JSON-RPC responses instead of SSE streaming
+      const { serverless: _serverless, serverlessStreaming, ...transportOptions } = options ?? {};
+
+      // Create a one-time transport that handles this single request.
+      // sessionIdGenerator: undefined disables session management entirely.
+      // Keep JSON-RPC responses by default, but allow request-scoped SSE for progress notifications.
       const tempTransport = new StreamableHTTPServerTransport({
+        ...transportOptions,
         sessionIdGenerator: undefined,
-        enableJsonResponse: true,
+        enableJsonResponse: serverlessStreaming ? false : (transportOptions.enableJsonResponse ?? true),
       });
 
       // Connect the transient server to the temporary transport

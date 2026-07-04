@@ -1438,6 +1438,79 @@ describe('MCPServer', () => {
       await client.disconnect();
     });
 
+    it('should stream progress notifications in serverless mode when serverlessStreaming is true', async () => {
+      sessionServer = new MCPServer({
+        name: 'ServerlessProgressServer',
+        version: '1.0.0',
+        tools: {
+          progressTool: {
+            description: 'Emits a progress notification',
+            parameters: z.object({}),
+            execute: async (_inputData, context) => {
+              const extra = context?.mcp?.extra as MCPRequestHandlerExtra | undefined;
+              const progressToken = extra?._meta?.progressToken;
+
+              if (progressToken) {
+                await extra?.sendNotification({
+                  method: 'notifications/progress',
+                  params: {
+                    progress: 1,
+                    total: 1,
+                    progressToken,
+                  },
+                });
+              }
+
+              return { result: 'ok' };
+            },
+          },
+        },
+      });
+
+      sessionHttpServer = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
+        const url = new URL(req.url || '', `http://localhost:${currentTestPort}`);
+        await sessionServer.startHTTP({
+          url,
+          httpPath: '/http',
+          req,
+          res,
+          options: {
+            serverless: true,
+            serverlessStreaming: true,
+          },
+        });
+      });
+
+      currentTestPort = await listenOnFreePort(sessionHttpServer);
+
+      const client = new InternalMastraMCPClient({
+        name: 'serverless-progress-client',
+        server: {
+          url: new URL(`http://localhost:${currentTestPort}/http`),
+          enableProgressTracking: true,
+        },
+      });
+      const progressHandler = vi.fn();
+
+      client.progress.onUpdate(progressHandler);
+      await client.connect();
+
+      const tools = await client.tools();
+      const progressTool = tools.progressTool;
+      expect(progressTool).toBeDefined();
+
+      await progressTool?.execute?.({});
+
+      expect(progressHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          progress: 1,
+          total: 1,
+        }),
+      );
+
+      await client.disconnect();
+    });
+
     it('should use custom sessionIdGenerator when provided', async () => {
       const customSessionIds: string[] = [];
       let sessionIdCounter = 0;
