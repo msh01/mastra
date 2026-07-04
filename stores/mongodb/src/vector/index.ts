@@ -73,6 +73,7 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
   private client: MongoClient;
   private db: Db;
   private collections: Map<string, Collection<MongoDBDocument>>;
+  private readonly nativeFilterFieldCache = new Map<string, Set<string>>();
   private readonly embeddingFieldName: string;
   private readonly metadataFieldName = 'metadata';
   private readonly documentFieldName = 'document';
@@ -144,7 +145,7 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
    * queryable. Skipping that step on a real Atlas cluster may cause
    * "index not found" or "index not ready" errors on subsequent operations.
    */
-  async createIndex({ indexName, dimension, metric = 'cosine' }: CreateIndexParams): Promise<void> {
+  async createIndex({ indexName, dimension, metric = 'cosine', filterFields = [] }: CreateIndexParams): Promise<void> {
     let mongoMetric;
     try {
       if (!Number.isInteger(dimension) || dimension <= 0) {
@@ -184,17 +185,13 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
 
       const embeddingField = this.embeddingFieldName;
       const numDimensions = dimension;
+      const nativeFilterFields = this.buildNativeFilterFields(filterFields);
 
       // Create search indexes.
       // Note that fast filtering can be done during vector search, but only if
       // we know the fields at when the index is created.
       // 'document' is declared as a filter field so documentFilter queries can be
       // passed directly to $vectorSearch without materialising candidate IDs.
-      // Metadata fields are NOT declared here because they are arbitrary and unknown
-      // at index-creation time. MongoDB can filter metadata fields more efficiently
-      // during the vector search itself if they are declared as filter fields in the
-      // index — this requires a filterFields parameter on createIndex (see
-      // https://github.com/mastra-ai/mastra/issues/18587).
       await collection.createSearchIndex({
         definition: {
           fields: [
@@ -212,11 +209,19 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
               type: 'filter',
               path: 'document',
             },
+            ...nativeFilterFields.map(path => ({
+              type: 'filter',
+              path,
+            })),
           ],
         },
         name: indexNameInternal,
         type: 'vectorSearch',
       });
+      this.nativeFilterFieldCache.set(
+        indexNameInternal,
+        new Set(['_id', this.documentFieldName, ...nativeFilterFields]),
+      );
       await collection.createSearchIndex({
         definition: {
           mappings: {
@@ -400,24 +405,31 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
       };
 
       if (hasMetadataFilter) {
-        // Metadata fields are not declared as filter fields in the vectorSearch index,
-        // so they cannot be passed directly to $vectorSearch. Materialise matching _ids
-        // via $match first, then filter by _id inside $vectorSearch.
-        // Declaring metadata fields as filter fields at index-creation time would allow
-        // passing the filter directly and avoid this materialisation step — see the
-        // planned filterFields parameter on createIndex.
-        // https://github.com/mastra-ai/mastra/issues/18587
-        const candidateIds = await collection
-          .aggregate([{ $match: metadataFilter }, { $project: { _id: 1 } }])
-          .map(doc => doc._id)
-          .toArray();
+        const canUseNativeMetadataFilter = await this.canUseNativeMetadataFilter(
+          collection,
+          indexNameInternal,
+          metadataFilter,
+        );
 
-        if (candidateIds.length === 0) return [];
+        if (canUseNativeMetadataFilter) {
+          vectorSearch.filter = documentFilter
+            ? { $and: [metadataFilter, { [this.documentFieldName]: documentFilter }] }
+            : metadataFilter;
+        } else {
+          // Metadata fields that were not declared as vectorSearch filter fields
+          // must keep using the pre-filter path.
+          const candidateIds = await collection
+            .aggregate([{ $match: metadataFilter }, { $project: { _id: 1 } }])
+            .map(doc => doc._id)
+            .toArray();
 
-        // 'document' is a declared filter field — combine directly when present.
-        vectorSearch.filter = documentFilter
-          ? { $and: [{ _id: { $in: candidateIds } }, { [this.documentFieldName]: documentFilter }] }
-          : { _id: { $in: candidateIds } };
+          if (candidateIds.length === 0) return [];
+
+          // 'document' is a declared filter field — combine directly when present.
+          vectorSearch.filter = documentFilter
+            ? { $and: [{ _id: { $in: candidateIds } }, { [this.documentFieldName]: documentFilter }] }
+            : { _id: { $in: candidateIds } };
+        }
       } else if (documentFilter) {
         // 'document' is a declared filter field in the index — pass directly,
         // no candidate materialisation needed.
@@ -872,6 +884,89 @@ export class MongoDBVector extends MastraVector<MongoDBVectorFilter> {
     const translator = new MongoDBFilterTranslator();
     if (!filter) return {};
     return translator.translate(filter);
+  }
+
+  private buildNativeFilterFields(filterFields: string[]): string[] {
+    const nativeFilterFields = new Set<string>();
+
+    for (const field of filterFields) {
+      const normalizedField = this.normalizeMetadataFilterField(field);
+      if (normalizedField) {
+        nativeFilterFields.add(normalizedField);
+      }
+    }
+
+    return Array.from(nativeFilterFields);
+  }
+
+  private normalizeMetadataFilterField(field: string): string | undefined {
+    const trimmedField = field.trim();
+    if (!trimmedField) return undefined;
+
+    return trimmedField.startsWith(`${this.metadataFieldName}.`)
+      ? trimmedField
+      : `${this.metadataFieldName}.${trimmedField}`;
+  }
+
+  private async canUseNativeMetadataFilter(
+    collection: Collection<MongoDBDocument>,
+    indexNameInternal: string,
+    metadataFilter: Document,
+  ): Promise<boolean> {
+    const filterPaths = this.getFilterFieldPaths(metadataFilter);
+    if (filterPaths.size === 0) return false;
+
+    const nativeFilterFields = await this.getNativeFilterFields(collection, indexNameInternal);
+    return Array.from(filterPaths).every(path => nativeFilterFields.has(path));
+  }
+
+  private async getNativeFilterFields(
+    collection: Collection<MongoDBDocument>,
+    indexNameInternal: string,
+  ): Promise<Set<string>> {
+    const cachedFilterFields = this.nativeFilterFieldCache.get(indexNameInternal);
+    if (cachedFilterFields) return cachedFilterFields;
+
+    try {
+      const indexInfo: any[] = await (collection as any).listSearchIndexes().toArray();
+      const indexData = indexInfo.find((idx: any) => idx.name === indexNameInternal);
+      const nativeFilterFields = new Set<string>(
+        (indexData?.latestDefinition?.fields ?? indexData?.definition?.fields ?? [])
+          .filter((field: any) => field.type === 'filter' && typeof field.path === 'string')
+          .map((field: any) => field.path),
+      );
+
+      this.nativeFilterFieldCache.set(indexNameInternal, nativeFilterFields);
+      return nativeFilterFields;
+    } catch {
+      return new Set();
+    }
+  }
+
+  private getFilterFieldPaths(filter: any): Set<string> {
+    const fieldPaths = new Set<string>();
+
+    const collectFieldPaths = (value: any) => {
+      if (!value || typeof value !== 'object') return;
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          collectFieldPaths(item);
+        }
+        return;
+      }
+
+      for (const [key, nestedValue] of Object.entries(value)) {
+        if (key.startsWith('$')) {
+          collectFieldPaths(nestedValue);
+        } else {
+          fieldPaths.add(key);
+        }
+      }
+    };
+
+    collectFieldPaths(filter);
+    return fieldPaths;
   }
 
   /**

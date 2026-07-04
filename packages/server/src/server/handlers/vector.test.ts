@@ -148,6 +148,7 @@ describe('Vector Handlers', () => {
         indexName: 'test-index',
         dimension: 3,
         metric: 'cosine',
+        filterFields: ['category', 'tenant_id'],
       });
 
       expect(result).toEqual({ success: true });
@@ -155,6 +156,7 @@ describe('Vector Handlers', () => {
         indexName: 'test-index',
         dimension: 3,
         metric: 'cosine',
+        filterFields: ['category', 'tenant_id'],
       });
     });
   });

@@ -36,6 +36,7 @@ interface CreateIndexRequest {
   indexName: string;
   dimension: number;
   metric?: 'cosine' | 'euclidean' | 'dotproduct';
+  filterFields?: string[];
 }
 
 interface QueryRequest {
@@ -88,6 +89,7 @@ export async function createIndex({
   indexName,
   dimension,
   metric,
+  filterFields,
 }: Pick<VectorContext, 'mastra' | 'vectorName'> & CreateIndexRequest) {
   try {
     if (!indexName || typeof dimension !== 'number' || dimension <= 0) {
@@ -101,7 +103,7 @@ export async function createIndex({
     }
 
     const vector = getVector(mastra, vectorName);
-    await vector.createIndex({ indexName, dimension, metric });
+    await vector.createIndex({ indexName, dimension, metric, filterFields });
     return { success: true };
   } catch (error) {
     return handleError(error, 'Error creating index');
@@ -253,7 +255,7 @@ export const CREATE_INDEX_ROUTE = createRoute({
   requiresAuth: true,
   handler: async ({ mastra, vectorName, ...params }) => {
     try {
-      const { indexName, dimension, metric } = params;
+      const { indexName, dimension, metric, filterFields } = params;
 
       if (!indexName || typeof dimension !== 'number' || dimension <= 0) {
         throw new HTTPException(400, {
@@ -266,7 +268,7 @@ export const CREATE_INDEX_ROUTE = createRoute({
       }
 
       const vector = getVector(mastra, vectorName);
-      await vector.createIndex({ indexName, dimension, metric });
+      await vector.createIndex({ indexName, dimension, metric, filterFields });
       return { success: true };
     } catch (error) {
       return handleError(error, 'Error creating index');

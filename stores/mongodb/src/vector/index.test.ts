@@ -77,6 +77,94 @@ describe('MongoDBVector constructor (#11697)', () => {
   });
 });
 
+describe('MongoDBVector filterFields (#18587)', () => {
+  function createMockedVector(collection: any) {
+    const vectorDB = new MongoDBVector({
+      id: 'test',
+      uri: 'mongodb://localhost:27017',
+      dbName: 'test_db',
+    });
+
+    (vectorDB as any).db = {
+      listCollections: vi.fn(() => ({ hasNext: vi.fn().mockResolvedValue(true) })),
+    };
+    (vectorDB as any).collections = new Map([['docs', collection]]);
+
+    return vectorDB;
+  }
+
+  it('declares metadata filter fields when creating the vectorSearch index', async () => {
+    const createSearchIndex = vi.fn().mockResolvedValue(undefined);
+    const vectorDB = createMockedVector({ createSearchIndex });
+
+    await vectorDB.createIndex({
+      indexName: 'docs',
+      dimension: 3,
+      filterFields: ['category', 'metadata.tenant_id', 'category', ''],
+    });
+
+    expect(createSearchIndex).toHaveBeenCalledWith(
+      expect.objectContaining({
+        definition: expect.objectContaining({
+          fields: expect.arrayContaining([
+            { type: 'filter', path: 'metadata.category' },
+            { type: 'filter', path: 'metadata.tenant_id' },
+          ]),
+        }),
+        name: 'docs_vector_index',
+        type: 'vectorSearch',
+      }),
+    );
+
+    const vectorIndexCall = createSearchIndex.mock.calls[0]?.[0];
+    const metadataCategoryFields = vectorIndexCall.definition.fields.filter(
+      (field: any) => field.path === 'metadata.category',
+    );
+    expect(metadataCategoryFields).toHaveLength(1);
+  });
+
+  it('passes declared metadata filters directly to vectorSearch', async () => {
+    const aggregate = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([{ _id: 'vec-1', score: 0.9, metadata: { category: 'docs' } }]),
+    });
+    const collection = {
+      aggregate,
+      listSearchIndexes: vi.fn(() => ({
+        toArray: vi.fn().mockResolvedValue([
+          {
+            name: 'docs_vector_index',
+            latestDefinition: {
+              fields: [
+                { type: 'filter', path: '_id' },
+                { type: 'filter', path: 'document' },
+                { type: 'filter', path: 'metadata.category' },
+              ],
+            },
+          },
+        ]),
+      })),
+    };
+    const vectorDB = createMockedVector(collection);
+
+    await vectorDB.query({
+      indexName: 'docs',
+      queryVector: [0.1, 0.2, 0.3],
+      filter: { category: 'docs' },
+    });
+
+    expect(aggregate).toHaveBeenCalledTimes(1);
+    expect(aggregate).toHaveBeenCalledWith([
+      {
+        $vectorSearch: expect.objectContaining({
+          filter: { 'metadata.category': 'docs' },
+        }),
+      },
+      expect.any(Object),
+      expect.any(Object),
+    ]);
+  });
+});
+
 // Give tests enough time to complete database operations
 vi.setConfig({ testTimeout: 300000, hookTimeout: 300000 });
 

@@ -25,6 +25,7 @@ export const upsertVectorsBodySchema = indexBodyBaseSchema.extend({
 export const createIndexBodySchema = indexBodyBaseSchema.extend({
   dimension: z.number(),
   metric: z.enum(['cosine', 'euclidean', 'dotproduct']).optional(),
+  filterFields: z.array(z.string()).optional(),
 });
 
 export const queryVectorsBodySchema = indexBodyBaseSchema.extend({

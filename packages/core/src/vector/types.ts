@@ -60,6 +60,14 @@ export interface CreateIndexParams {
   indexName: string;
   dimension: number;
   metric?: 'cosine' | 'euclidean' | 'dotproduct';
+  /**
+   * Metadata field names that may be used in query filters.
+   *
+   * Vector stores that support declaring filter fields at index creation time
+   * can use this hint to enable native filtered vector search. Stores without
+   * equivalent support ignore it.
+   */
+  filterFields?: string[];
 }
 
 export interface QueryVectorParams<Filter = VectorFilter> {

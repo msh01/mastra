@@ -106,8 +106,26 @@ Creates a new vector index (collection) in MongoDB.
     defaultValue: 'cosine',
     description: 'Distance metric for similarity search',
   },
+  {
+    name: 'filterFields',
+    type: 'string[]',
+    isOptional: true,
+    description:
+      "Metadata field names to declare as Atlas Vector Search filter fields. Use this for metadata fields that you query often, such as 'category' or 'tenant_id'.",
+  },
 ]}
 />
+
+The following example declares metadata fields for native filtered vector search:
+
+```typescript
+await store.createIndex({
+  indexName: 'vectors',
+  dimension: 1536,
+  metric: 'cosine',
+  filterFields: ['category', 'tenant_id'],
+})
+```
 
 ### `upsert()`
 
