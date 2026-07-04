@@ -174,6 +174,63 @@ describe('Mastra Studio "studioBase" functionality', () => {
     });
   });
 
+  describe('studio route auth', () => {
+    it('requires server auth for bundled studio refresh endpoints', async () => {
+      vi.mocked(mockMastra.getServer).mockReturnValue({
+        studioBase: '/studio',
+        auth: {
+          authenticateToken: vi.fn(async token => (token === 'valid-token' ? { id: 'user-1' } : null)),
+        },
+      });
+      const app = await createHonoServer(mockMastra, { tools: {}, studio: true });
+
+      const unauthorized = await app.request('/studio/__hot-reload-status');
+      expect(unauthorized.status).toBe(401);
+
+      const authorized = await app.request('/studio/__hot-reload-status', {
+        headers: { Authorization: 'Bearer valid-token' },
+      });
+      expect(authorized.status).toBe(200);
+    });
+
+    it('requires server auth for the bundled studio shell', async () => {
+      vi.mocked(mockMastra.getServer).mockReturnValue({
+        studioBase: '/studio',
+        auth: {
+          authenticateToken: vi.fn(async token => (token === 'valid-token' ? { id: 'user-1' } : null)),
+        },
+      });
+      const app = await createHonoServer(mockMastra, { tools: {}, studio: true });
+
+      const unauthorized = await app.request('/studio');
+      expect(unauthorized.status).toBe(401);
+
+      const authorized = await app.request('/studio', {
+        headers: { Authorization: 'Bearer valid-token' },
+      });
+      expect(authorized.status).toBe(200);
+      expect(await authorized.text()).toContain('window.MASTRA_STUDIO_BASE_PATH');
+    });
+
+    it('passes the raw request to server auth so cookie-based auth can protect EventSource routes', async () => {
+      const authenticateToken = vi.fn(async (_token: string, request: Request) =>
+        request.headers.get('cookie') === 'session=valid' ? { id: 'user-1' } : null,
+      );
+      vi.mocked(mockMastra.getServer).mockReturnValue({
+        studioBase: '/studio',
+        auth: { authenticateToken },
+      });
+      const app = await createHonoServer(mockMastra, { tools: {}, studio: true });
+
+      const response = await app.request('/studio/refresh-events', {
+        headers: { Cookie: 'session=valid' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(authenticateToken).toHaveBeenCalledWith('', expect.any(Request));
+    });
+  });
+
   describe('HTML placeholder replacement', () => {
     it('should not rewrite asset paths for root studioBase path', async () => {
       vi.mocked(mockMastra.getServer).mockReturnValue({ studioBase: '/', port: 4111, host: 'localhost' });

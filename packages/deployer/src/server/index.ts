@@ -58,6 +58,31 @@ const DEFAULT_CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OP
 const DEFAULT_CORS_ALLOW_HEADERS = ['Content-Type', 'Authorization', 'x-mastra-client-type', 'x-mastra-dev-playground'];
 const DEFAULT_CORS_EXPOSE_HEADERS = ['Content-Length', 'X-Requested-With'];
 
+function getAuthToken(c: Context) {
+  const authHeader = c.req.header('authorization');
+  if (authHeader) {
+    return authHeader.replace(/^Bearer\s+/i, '').trim();
+  }
+
+  return c.req.query('apiKey') ?? '';
+}
+
+function protectBundledStudio(mastra: Mastra): HonoMiddlewareHandler {
+  return async (c, next) => {
+    const auth = mastra.getServer()?.auth;
+    if (!auth || typeof auth.authenticateToken !== 'function') {
+      return next();
+    }
+
+    const user = await auth.authenticateToken(getAuthToken(c), c.req.raw);
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    return next();
+  };
+}
+
 function getCorsConfig(serverCors: CorsOptions | false | undefined, credentialsDefault: boolean) {
   const userCors = serverCors && typeof serverCors === 'object' ? serverCors : undefined;
   const origin =
@@ -359,6 +384,14 @@ export async function createHonoServer(
   const studioBasePath = normalizeStudioBase(serverOptions?.studioBase ?? '/');
 
   if (options?.studio) {
+    const studioAuthMiddleware = protectBundledStudio(mastra);
+    if (studioBasePath) {
+      app.use(studioBasePath, studioAuthMiddleware);
+      app.use(`${studioBasePath}/*`, studioAuthMiddleware);
+    } else {
+      app.use('*', studioAuthMiddleware);
+    }
+
     // SSE endpoint for refresh notifications
     app.get(
       `${studioBasePath}/refresh-events`,
