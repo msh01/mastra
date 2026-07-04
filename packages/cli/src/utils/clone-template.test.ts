@@ -31,10 +31,10 @@ vi.mock('yocto-spinner', () => ({
   })),
 }));
 
-// Mock child_process.exec
+// Mock child_process.execFile
 vi.mock('node:child_process', () => ({
   default: {
-    exec: vi.fn(),
+    execFile: vi.fn(),
   },
 }));
 
@@ -94,7 +94,7 @@ describe('clone-template', () => {
 
     it('should clone template successfully using degit', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       // Filesystem starts empty from beforeEach vol.reset()
 
@@ -105,7 +105,7 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/test-project');
-      expect(mockExec).toHaveBeenCalledWith('npx degit mastra-ai/template-test /test-project', {
+      expect(mockExec).toHaveBeenCalledWith('npx', ['degit', 'mastra-ai/template-test', '/test-project'], {
         cwd: process.cwd(),
       });
     });
@@ -116,7 +116,7 @@ describe('clone-template', () => {
         .mockRejectedValueOnce(new Error('degit failed'))
         .mockResolvedValueOnce({ stdout: '', stderr: '' }); // git clone succeeds
 
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       // Filesystem starts empty from beforeEach vol.reset()
 
@@ -127,25 +127,29 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/test-project');
-      expect(mockExec).toHaveBeenCalledWith('npx degit mastra-ai/template-test /test-project', {
+      expect(mockExec).toHaveBeenCalledWith('npx', ['degit', 'mastra-ai/template-test', '/test-project'], {
         cwd: process.cwd(),
       });
-      expect(mockExec).toHaveBeenCalledWith('git clone https\\://github.com/mastra-ai/template-test /test-project', {
-        cwd: process.cwd(),
-      });
+      expect(mockExec).toHaveBeenCalledWith(
+        'git',
+        ['clone', 'https://github.com/mastra-ai/template-test', '/test-project'],
+        {
+          cwd: process.cwd(),
+        },
+      );
     });
 
     it('should update package.json with new project name', async () => {
-      const mockExec = vi.fn(async (cmd: string) => {
+      const mockExec = vi.fn(async (cmd: string, args: string[]) => {
         // Simulate degit creating the directory and package.json
-        if (cmd.includes('degit')) {
+        if (cmd === 'npx' && args.includes('degit')) {
           vol.fromJSON({
             '/test-project/package.json': JSON.stringify({ name: 'old-name', version: '1.0.0' }),
           });
         }
         return { stdout: '', stderr: '' };
       });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       // Filesystem starts empty from beforeEach vol.reset()
       // The mock exec will create files when degit runs
@@ -166,7 +170,7 @@ describe('clone-template', () => {
 
     it('should handle missing package.json gracefully', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { logger } = await import('./logger');
       const { cloneTemplate } = await import('./clone-template');
@@ -201,7 +205,7 @@ describe('clone-template', () => {
         .mockRejectedValueOnce(new Error('degit failed'))
         .mockRejectedValueOnce(new Error('git clone failed'));
 
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
 
@@ -215,7 +219,7 @@ describe('clone-template', () => {
 
     it('should use custom target directory when provided', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       const result = await cloneTemplate({
@@ -225,14 +229,14 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/custom/path/test-project');
-      expect(mockExec).toHaveBeenCalledWith('npx degit mastra-ai/template-test /custom/path/test-project', {
+      expect(mockExec).toHaveBeenCalledWith('npx', ['degit', 'mastra-ai/template-test', '/custom/path/test-project'], {
         cwd: process.cwd(),
       });
     });
 
     it('should clone from beta branch when branch is specified with degit', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       const result = await cloneTemplate({
@@ -242,7 +246,7 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/test-project');
-      expect(mockExec).toHaveBeenCalledWith('npx degit mastra-ai/template-test\\#beta /test-project', {
+      expect(mockExec).toHaveBeenCalledWith('npx', ['degit', 'mastra-ai/template-test#beta', '/test-project'], {
         cwd: process.cwd(),
       });
     });
@@ -253,7 +257,7 @@ describe('clone-template', () => {
         .mockRejectedValueOnce(new Error('degit failed'))
         .mockResolvedValueOnce({ stdout: '', stderr: '' }); // git clone succeeds
 
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       const result = await cloneTemplate({
@@ -263,11 +267,12 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/test-project');
-      expect(mockExec).toHaveBeenCalledWith('npx degit mastra-ai/template-test\\#beta /test-project', {
+      expect(mockExec).toHaveBeenCalledWith('npx', ['degit', 'mastra-ai/template-test#beta', '/test-project'], {
         cwd: process.cwd(),
       });
       expect(mockExec).toHaveBeenCalledWith(
-        'git clone --branch beta https\\://github.com/mastra-ai/template-test /test-project',
+        'git',
+        ['clone', '--branch', 'beta', 'https://github.com/mastra-ai/template-test', '/test-project'],
         {
           cwd: process.cwd(),
         },
@@ -280,7 +285,7 @@ describe('clone-template', () => {
         .mockRejectedValueOnce(new Error('degit failed'))
         .mockResolvedValueOnce({ stdout: '', stderr: '' }); // git clone succeeds
 
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       const result = await cloneTemplate({
@@ -289,15 +294,19 @@ describe('clone-template', () => {
       });
 
       expect(result).toBe('/test-project');
-      expect(mockExec).toHaveBeenCalledWith('git clone https\\://github.com/mastra-ai/template-test /test-project', {
-        cwd: process.cwd(),
-      });
+      expect(mockExec).toHaveBeenCalledWith(
+        'git',
+        ['clone', 'https://github.com/mastra-ai/template-test', '/test-project'],
+        {
+          cwd: process.cwd(),
+        },
+      );
     });
 
     it('should update MODEL in .env when llmProvider is specified', async () => {
-      const mockExec = vi.fn(async (cmd: string) => {
+      const mockExec = vi.fn(async (cmd: string, args: string[]) => {
         // Simulate degit creating the directory and files
-        if (cmd.includes('degit')) {
+        if (cmd === 'npx' && args.includes('degit')) {
           vol.fromJSON({
             '/test-project/package.json': JSON.stringify({ name: 'old-name', version: '1.0.0' }),
             '/test-project/.env.example': 'MODEL=openai/gpt-4o-mini\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=',
@@ -305,7 +314,7 @@ describe('clone-template', () => {
         }
         return { stdout: '', stderr: '' };
       });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       await cloneTemplate({
@@ -322,16 +331,16 @@ describe('clone-template', () => {
     });
 
     it('should not fail when llmProvider is specified but .env.example does not exist', async () => {
-      const mockExec = vi.fn(async (cmd: string) => {
+      const mockExec = vi.fn(async (cmd: string, args: string[]) => {
         // Simulate degit creating the directory without .env.example
-        if (cmd.includes('degit')) {
+        if (cmd === 'npx' && args.includes('degit')) {
           vol.fromJSON({
             '/test-project/package.json': JSON.stringify({ name: 'old-name', version: '1.0.0' }),
           });
         }
         return { stdout: '', stderr: '' };
       });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { cloneTemplate } = await import('./clone-template');
       const result = await cloneTemplate({
@@ -347,44 +356,44 @@ describe('clone-template', () => {
   describe('installDependencies', () => {
     it('should install dependencies with detected package manager', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { installDependencies } = await import('./clone-template');
       await installDependencies('/test-project');
 
       // Should use the mocked getPackageManager which returns 'npm'
-      expect(mockExec).toHaveBeenCalledWith('npm install', {
+      expect(mockExec).toHaveBeenCalledWith('npm', ['install'], {
         cwd: '/test-project',
       });
     });
 
     it('should use provided package manager', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { installDependencies } = await import('./clone-template');
       await installDependencies('/test-project', 'yarn');
 
-      expect(mockExec).toHaveBeenCalledWith('yarn install', {
+      expect(mockExec).toHaveBeenCalledWith('yarn', ['install'], {
         cwd: '/test-project',
       });
     });
 
     it('should default to npm when no lock file is found', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { installDependencies } = await import('./clone-template');
       await installDependencies('/test-project');
 
-      expect(mockExec).toHaveBeenCalledWith('npm install', {
+      expect(mockExec).toHaveBeenCalledWith('npm', ['install'], {
         cwd: '/test-project',
       });
     });
 
     it('should detect yarn when getPackageManager returns yarn', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       // Mock getPackageManager to return yarn
       const { getPackageManager } = await import('../commands/utils');
@@ -393,27 +402,27 @@ describe('clone-template', () => {
       const { installDependencies } = await import('./clone-template');
       await installDependencies('/test-project');
 
-      expect(mockExec).toHaveBeenCalledWith('yarn install', {
+      expect(mockExec).toHaveBeenCalledWith('yarn', ['install'], {
         cwd: '/test-project',
       });
     });
 
     it('should detect npm when getPackageManager returns npm', async () => {
       const mockExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       // getPackageManager is already mocked to return 'npm' by default
       const { installDependencies } = await import('./clone-template');
       await installDependencies('/test-project');
 
-      expect(mockExec).toHaveBeenCalledWith('npm install', {
+      expect(mockExec).toHaveBeenCalledWith('npm', ['install'], {
         cwd: '/test-project',
       });
     });
 
     it('should throw error if dependency installation fails', async () => {
       const mockExec = vi.fn().mockRejectedValue(new Error('Install failed'));
-      vi.mocked(child_process.exec).mockImplementation(mockExec);
+      vi.mocked(child_process.execFile).mockImplementation(mockExec);
 
       const { installDependencies } = await import('./clone-template');
 

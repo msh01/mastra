@@ -2,7 +2,6 @@ import child_process from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import util from 'node:util';
-import shellQuote from 'shell-quote';
 import yoctoSpinner from 'yocto-spinner';
 
 import type { LLMProvider } from '../commands/init/utils';
@@ -12,7 +11,7 @@ import { getPackageManager } from '../commands/utils';
 import { logger } from './logger';
 import type { Template } from './template-utils';
 
-const exec = util.promisify(child_process.exec);
+const execFile = util.promisify(child_process.execFile);
 
 export interface CloneTemplateOptions {
   template: Template;
@@ -88,22 +87,20 @@ async function cloneRepositoryWithoutGit(repoUrl: string, targetPath: string, br
     const degitRepo = repoUrl.replace('https://github.com/', '');
     // If branch is specified, append it to the degit repo (format: owner/repo#branch)
     const degitRepoWithBranch = branch ? `${degitRepo}#${branch}` : degitRepo;
-    const degitCommand = shellQuote.quote(['npx', 'degit', degitRepoWithBranch, targetPath]);
-    await exec(degitCommand, {
+    await execFile('npx', ['degit', degitRepoWithBranch, targetPath], {
       cwd: process.cwd(),
     });
   } catch {
     // Fallback to git clone + remove .git
     try {
-      const gitArgs = ['git', 'clone'];
+      const gitArgs = ['clone'];
       // Add branch flag if specified
       if (branch) {
         gitArgs.push('--branch', branch);
       }
       gitArgs.push(repoUrl, targetPath);
 
-      const gitCommand = shellQuote.quote(gitArgs);
-      await exec(gitCommand, {
+      await execFile('git', gitArgs, {
         cwd: process.cwd(),
       });
 
@@ -167,9 +164,7 @@ export async function installDependencies(projectPath: string, packageManager?: 
     // Use provided package manager or detect from environment/globally
     const pm = packageManager || getPackageManager();
 
-    const installCommand = shellQuote.quote([pm, 'install']);
-
-    await exec(installCommand, {
+    await execFile(pm, ['install'], {
       cwd: projectPath,
     });
 
