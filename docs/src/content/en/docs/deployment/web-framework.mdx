@@ -17,6 +17,7 @@ Integration guides:
 
 - [With Next.js](/guides/getting-started/next-js)
 - [With Astro](/guides/getting-started/astro)
+- [With Nuxt](/guides/getting-started/nuxt)
 
 ## With Next.js on Vercel
 
@@ -31,6 +32,16 @@ const nextConfig: NextConfig = {
 
 export default nextConfig
 ```
+
+## With Nuxt on Vercel using pnpm
+
+If you've integrated Mastra with Nuxt [by following our guide](/guides/getting-started/nuxt), and you deploy to Vercel with pnpm, add `node-linker=hoisted` to your `.npmrc`:
+
+```ini title=".npmrc"
+node-linker=hoisted
+```
+
+Nuxt uses Nitro to bundle server routes for Vercel. With pnpm's default symlinked `node_modules` layout, Vercel's file tracing can miss npm alias packages used by Mastra and the AI SDK, which can cause runtime `ERR_MODULE_NOT_FOUND` errors. The hoisted linker gives Vercel a flat `node_modules` layout while keeping pnpm as the package manager.
 
 ## With Astro on Vercel
 
