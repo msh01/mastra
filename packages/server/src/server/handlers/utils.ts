@@ -1,7 +1,7 @@
 import type { MastraFGAPermissionInput } from '@mastra/core/auth/ee';
 import type { RequestContext } from '@mastra/core/di';
 import { MastraMemory } from '@mastra/core/memory';
-import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY } from '../constants';
+import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY, MASTRA_USER_KEY } from '../constants';
 import { MastraFGAPermissions } from '../fga-permissions';
 import { HTTPException } from '../http-exception';
 
@@ -90,6 +90,33 @@ export function getEffectiveThreadId(
   return contextThreadId || clientThreadId;
 }
 
+export function hasAuthenticatedUser(requestContext: RequestContext | undefined): boolean {
+  const user = requestContext?.get(MASTRA_USER_KEY) ?? requestContext?.get('user');
+  return !!user && typeof user === 'object';
+}
+
+export function getFGAProvider(mastra: any) {
+  return mastra?.getServer?.()?.fga;
+}
+
+export function assertAuthenticatedResourceScope({
+  mastra,
+  requestContext,
+  effectiveResourceId,
+}: {
+  mastra: any;
+  requestContext?: RequestContext;
+  effectiveResourceId?: string;
+}): void {
+  if (effectiveResourceId || !hasAuthenticatedUser(requestContext) || getFGAProvider(mastra)) {
+    return;
+  }
+
+  throw new HTTPException(403, {
+    message: 'Access denied: authenticated memory requests require a resource scope',
+  });
+}
+
 /**
  * Validates that a thread belongs to the specified resourceId.
  * Throws 403 if the thread exists but belongs to a different resource.
@@ -98,7 +125,11 @@ export function getEffectiveThreadId(
 export async function validateThreadOwnership(
   thread: { resourceId?: string | null } | null | undefined,
   effectiveResourceId: string | undefined,
+  options: { requireResourceScope?: boolean } = {},
 ): Promise<void> {
+  if (thread?.resourceId && !effectiveResourceId && options.requireResourceScope) {
+    throw new HTTPException(403, { message: 'Access denied: authenticated memory requests require a resource scope' });
+  }
   if (thread && effectiveResourceId && thread.resourceId && thread.resourceId !== effectiveResourceId) {
     throw new HTTPException(403, { message: 'Access denied: thread belongs to a different resource' });
   }
@@ -123,9 +154,11 @@ export async function enforceThreadAccess({
   effectiveResourceId?: string;
   permission?: MastraFGAPermissionInput;
 }): Promise<void> {
-  await validateThreadOwnership(thread, effectiveResourceId);
+  const fgaProvider = getFGAProvider(mastra);
+  await validateThreadOwnership(thread, effectiveResourceId, {
+    requireResourceScope: hasAuthenticatedUser(requestContext) && !fgaProvider,
+  });
 
-  const fgaProvider = mastra?.getServer?.()?.fga;
   if (!fgaProvider) {
     return;
   }

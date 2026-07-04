@@ -1837,6 +1837,31 @@ describe('Memory Handlers', () => {
         expect(result.threads).toHaveLength(2);
       });
 
+      it('should reject authenticated list requests without a resource scope when FGA is not configured', async () => {
+        const mastra = new Mastra({
+          logger: false,
+          agents: { 'test-agent': mockAgent },
+        });
+
+        await mockMemory.createThread({ threadId: 'user-a-thread', resourceId: 'user-a' });
+        await mockMemory.createThread({ threadId: 'user-b-thread', resourceId: 'user-b' });
+
+        const ctx = createTestContextWithReservedKeys({ mastra });
+        ctx.requestContext.set('user', { id: 'user-b' });
+
+        await expect(
+          LIST_THREADS_ROUTE.handler({
+            ...ctx,
+            agentId: 'test-agent',
+            resourceId: undefined,
+            page: 0,
+            perPage: 10,
+          }),
+        ).rejects.toThrow(
+          new HTTPException(403, { message: 'Access denied: authenticated memory requests require a resource scope' }),
+        );
+      });
+
       it('should filter listed threads through FGA before returning them', async () => {
         const mastra = new Mastra({
           logger: false,
@@ -1934,6 +1959,87 @@ describe('Memory Handlers', () => {
         });
 
         expect(result.id).toBe('any-thread');
+      });
+
+      it('should reject authenticated thread reads without a resource scope when FGA is not configured', async () => {
+        const mastra = new Mastra({
+          logger: false,
+          agents: { 'test-agent': mockAgent },
+        });
+
+        await mockMemory.createThread({ threadId: 'user-a-thread', resourceId: 'user-a' });
+        const ctx = createTestContextWithReservedKeys({ mastra });
+        ctx.requestContext.set('user', { id: 'user-b' });
+
+        await expect(
+          GET_THREAD_BY_ID_ROUTE.handler({
+            ...ctx,
+            agentId: 'test-agent',
+            threadId: 'user-a-thread',
+          }),
+        ).rejects.toThrow(
+          new HTTPException(403, { message: 'Access denied: authenticated memory requests require a resource scope' }),
+        );
+      });
+
+      it('should reject authenticated message reads without a resource scope when FGA is not configured', async () => {
+        const mastra = new Mastra({
+          logger: false,
+          agents: { 'test-agent': mockAgent },
+        });
+
+        await mockMemory.createThread({ threadId: 'user-a-thread', resourceId: 'user-a' });
+        await mockMemory.saveMessages({
+          messages: [
+            {
+              id: 'user-a-message',
+              role: 'user',
+              createdAt: new Date(),
+              threadId: 'user-a-thread',
+              resourceId: 'user-a',
+              content: {
+                format: 2,
+                parts: [{ type: 'text', text: 'secret' }],
+                content: 'secret',
+              },
+            } as MastraDBMessage,
+          ],
+        });
+        const ctx = createTestContextWithReservedKeys({ mastra });
+        ctx.requestContext.set('user', { id: 'user-b' });
+
+        await expect(
+          LIST_MESSAGES_ROUTE.handler({
+            ...ctx,
+            agentId: 'test-agent',
+            threadId: 'user-a-thread',
+            page: 0,
+            perPage: 10,
+          }),
+        ).rejects.toThrow(
+          new HTTPException(403, { message: 'Access denied: authenticated memory requests require a resource scope' }),
+        );
+      });
+
+      it('should reject authenticated working memory reads without a resource scope when FGA is not configured', async () => {
+        const mastra = new Mastra({
+          logger: false,
+          agents: { 'test-agent': mockAgent },
+        });
+
+        await mockMemory.createThread({ threadId: 'user-a-thread', resourceId: 'user-a' });
+        const ctx = createTestContextWithReservedKeys({ mastra });
+        ctx.requestContext.set('user', { id: 'user-b' });
+
+        await expect(
+          GET_WORKING_MEMORY_ROUTE.handler({
+            ...ctx,
+            agentId: 'test-agent',
+            threadId: 'user-a-thread',
+          }),
+        ).rejects.toThrow(
+          new HTTPException(403, { message: 'Access denied: authenticated memory requests require a resource scope' }),
+        );
       });
     });
 

@@ -61,7 +61,13 @@ import {
   toLocalMessage,
   toLocalOMRecord,
 } from './gateway-memory-client';
-import { validateBody, getEffectiveResourceId, getEffectiveThreadId, enforceThreadAccess } from './utils';
+import {
+  validateBody,
+  getEffectiveResourceId,
+  getEffectiveThreadId,
+  enforceThreadAccess,
+  assertAuthenticatedResourceScope,
+} from './utils';
 
 interface MemoryContext extends Context {
   agentId?: string;
@@ -837,6 +843,7 @@ export const LIST_THREADS_ROUTE = createRoute({
     try {
       // Use effective resourceId (context key takes precedence over client-provided value)
       const effectiveResourceId = getEffectiveResourceId(requestContext, resourceId);
+      assertAuthenticatedResourceScope({ mastra, requestContext, effectiveResourceId });
 
       // Gateway proxy: list threads from gateway API
       const agent = await getAgentFromContext({ mastra, agentId, requestContext });
