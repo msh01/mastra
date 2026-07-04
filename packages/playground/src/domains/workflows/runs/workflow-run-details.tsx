@@ -75,6 +75,23 @@ export const WorkflowRunDetail = ({
 
   const runResult = convertWorkflowRunStateToStreamResult(runSnapshot);
   const runStatus = runResult?.status;
+  const hasInspectableSnapshot =
+    Object.keys(runResult?.steps ?? {}).length > 0 || Boolean(runSnapshot.serializedStepGraph);
+  const isActiveRun = runStatus === 'running' || runStatus === 'waiting' || runStatus === 'pending';
+
+  if (isActiveRun && !hasInspectableSnapshot) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-5 text-center">
+        <Txt variant="ui-md" className="font-medium text-neutral6">
+          No workflow snapshot available
+        </Txt>
+        <Txt variant="ui-sm" className="max-w-80 text-neutral3">
+          This run is still active, but Studio has no persisted step snapshot to inspect. Persist at least one workflow
+          snapshot to view live run details here.
+        </Txt>
+      </div>
+    );
+  }
 
   if (runId) {
     return (
