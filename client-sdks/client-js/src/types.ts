@@ -470,6 +470,7 @@ type WithoutMethods<T> = {
 
 export type NetworkStreamParams<OUTPUT = undefined> = {
   messages: MessageListInput;
+  model?: string;
   tracingOptions?: TracingOptions;
 } & MultiPrimitiveExecutionOptions<OUTPUT>;
 
@@ -561,6 +562,7 @@ export type StructuredOutputOptions<OUTPUT = undefined> = Omit<
   schema: PublicSchema<OUTPUT>;
 };
 export type StreamParamsBase<OUTPUT = undefined> = {
+  model?: string;
   tracingOptions?: TracingOptions;
   requestContext?: RequestContext;
   clientTools?: ToolsInput;

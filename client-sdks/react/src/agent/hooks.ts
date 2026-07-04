@@ -139,6 +139,7 @@ const resolveInitialMessages = (messages: MastraDBMessage[]): MastraDBMessage[] 
     });
 
 type SignalContinuationOptions = {
+  model?: ModelSettings['model'];
   maxSteps?: number;
   modelSettings?: {
     frequencyPenalty?: number;
@@ -182,6 +183,7 @@ interface SharedArgs {
   coreUserMessages: CoreUserMessage[];
   requestContext?: RequestContext;
   threadId?: string;
+  model?: ModelSettings['model'];
   modelSettings?: ModelSettings;
   signal?: AbortSignal;
   tracingOptions?: TracingOptions;
@@ -543,6 +545,7 @@ export const useChat = ({
     coreUserMessages,
     requestContext,
     threadId,
+    model: modelOverride,
     modelSettings,
     signal,
     onFinish,
@@ -561,7 +564,9 @@ export const useChat = ({
       providerOptions,
       maxSteps,
       requireToolApproval,
+      model: modelSettingsModel,
     } = modelSettings || {};
+    const model = modelOverride ?? modelSettingsModel;
     const resolvedRequestContext = requestContext ?? propsRequestContext;
     const resolvedClientTools = clientTools ?? hookClientTools;
     _requestContext.current = resolvedRequestContext;
@@ -579,6 +584,7 @@ export const useChat = ({
 
     const response = await agent.generate(coreUserMessages, {
       runId,
+      model,
       maxSteps,
       modelSettings: {
         frequencyPenalty,
@@ -634,6 +640,7 @@ export const useChat = ({
     requestContext,
     threadId,
     onChunk,
+    model: modelOverride,
     modelSettings,
     signal,
     tracingOptions,
@@ -653,11 +660,14 @@ export const useChat = ({
       providerOptions,
       maxSteps,
       requireToolApproval,
+      model: modelSettingsModel,
     } = modelSettings || {};
+    const model = modelOverride ?? modelSettingsModel;
 
     const resolvedRequestContext = requestContext ?? propsRequestContext;
     const resolvedClientTools = clientTools ?? hookClientTools;
     const signalContinuationOptions: SignalContinuationOptions = {
+      model,
       maxSteps,
       modelSettings: {
         frequencyPenalty,
@@ -696,6 +706,7 @@ export const useChat = ({
       const runId = uuid();
       const response = await agent.stream(coreUserMessages, {
         runId,
+        model,
         maxSteps,
         untilIdle: true,
         modelSettings: {
@@ -746,6 +757,7 @@ export const useChat = ({
     const resolvedSignalId = signalId ?? uuid();
     const messageContents = getSignalContents(coreUserMessages);
     const streamOptions = {
+      model,
       maxSteps,
       modelSettings: {
         frequencyPenalty,
@@ -828,12 +840,23 @@ export const useChat = ({
     requestContext,
     threadId,
     onNetworkChunk,
+    model: modelOverride,
     modelSettings,
     signal,
     tracingOptions,
   }: NetworkArgs) => {
-    const { frequencyPenalty, presencePenalty, maxRetries, maxTokens, temperature, topK, topP, maxSteps } =
-      modelSettings || {};
+    const {
+      frequencyPenalty,
+      presencePenalty,
+      maxRetries,
+      maxTokens,
+      temperature,
+      topK,
+      topP,
+      maxSteps,
+      model: modelSettingsModel,
+    } = modelSettings || {};
+    const model = modelOverride ?? modelSettingsModel;
 
     const resolvedRequestContext = requestContext ?? propsRequestContext;
     _requestContext.current = resolvedRequestContext;
@@ -850,6 +873,7 @@ export const useChat = ({
 
     const response = await agent.network(coreUserMessages, {
       maxSteps,
+      model,
       modelSettings: {
         frequencyPenalty,
         presencePenalty,

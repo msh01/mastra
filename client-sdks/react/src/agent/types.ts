@@ -5,6 +5,7 @@ export type ClientToolsInput = ToolsInput;
 export type ProviderOptionsInput = GenerateLegacyParams['providerOptions'];
 
 export interface ModelSettings {
+  model?: string;
   frequencyPenalty?: number;
   presencePenalty?: number;
   maxRetries?: number;

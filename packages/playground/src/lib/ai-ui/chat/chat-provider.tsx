@@ -12,6 +12,7 @@ import type { MessagesContextValue, RunningContextValue, SendContextValue, Tasks
 import { useChatSendHandler } from './use-chat-send-handler';
 import { useObservationalMemoryContext } from '@/domains/agents/context';
 import { useWorkingMemory } from '@/domains/agents/context/agent-working-memory-context';
+import { usePlaygroundModelOptional } from '@/domains/agents/context/playground-model-context';
 import { useMemoryConfig } from '@/domains/memory/hooks';
 import { useTracingSettings } from '@/domains/observability/context/tracing-settings-context';
 import { getCanSendWhileStreaming } from '@/services/mastra-runtime-state';
@@ -57,6 +58,7 @@ export function ChatProvider({
   const [streamErrors, setStreamErrors] = useState<MastraDBMessage[]>([]);
   const [threadSignalsUnsupported, setThreadSignalsUnsupported] = useState(false);
   const threadSignalsUnsupportedRef = useRef(false);
+  const playgroundModel = usePlaygroundModelOptional();
   const modelSettings = settings?.modelSettings ?? {};
   const threadSignalsEnabled =
     window.MASTRA_AGENT_SIGNALS !== 'false' && supportsMemory !== false && !modelSettings.chatWithLegacyStream;
@@ -244,8 +246,13 @@ export function ChatProvider({
     providerOptions,
     requireToolApproval,
   } = modelSettings;
+  const selectedModel =
+    playgroundModel?.provider && playgroundModel.model
+      ? `${playgroundModel.provider}/${playgroundModel.model}`
+      : undefined;
 
   const modelSettingsArgs = {
+    model: selectedModel,
     frequencyPenalty,
     presencePenalty,
     maxRetries,

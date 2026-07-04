@@ -2,8 +2,8 @@ import type { UpdateModelParams } from '@mastra/client-js';
 import { cn } from '@mastra/playground-ui/utils/cn';
 import { Lock, TriangleAlert } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { usePlaygroundModelOptional } from '../context/playground-model-context';
 import { useAgent } from '../hooks/use-agent';
-import { useUpdateAgentModel } from '../hooks/use-agents';
 import { useBuilderModelPolicy } from '@/domains/agent-builder';
 import { useAgentBuilderAllowedModels } from '@/domains/agent-builder/hooks/use-agent-builder-allowed-models';
 import { LLMProviders, LLMModels, useLLMProviders, cleanProviderId, findProviderById } from '@/domains/llm';
@@ -23,7 +23,7 @@ export interface ComposerModelSwitcherProps {
 
 export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) => {
   const { data: agent } = useAgent(agentId);
-  const { mutateAsync: updateModel } = useUpdateAgentModel(agentId);
+  const playgroundModel = usePlaygroundModelOptional();
   const { data: dataProviders, isLoading: providersLoading } = useLLMProviders();
   const policy = useBuilderModelPolicy();
 
@@ -48,19 +48,12 @@ export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) =
   const resolvedProvider = findProviderById(providers, currentModelProvider);
   const fullProviderId = resolvedProvider?.id || currentModelProvider;
 
-  // Auto-save when model changes
-  const handleModelSelect = async (modelId: string) => {
+  const handleModelSelect = (modelId: string) => {
     setSelectedModel(modelId);
 
     if (modelId && fullProviderId) {
-      try {
-        await updateModel({
-          provider: fullProviderId as UpdateModelParams['provider'],
-          modelId,
-        });
-      } catch (error) {
-        console.error('Failed to update model:', error);
-      }
+      playgroundModel?.setProvider(fullProviderId as UpdateModelParams['provider']);
+      playgroundModel?.setModel(modelId);
     }
   };
 
@@ -72,6 +65,8 @@ export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) =
     // Only clear model selection and open model combobox when switching to a different provider
     if (cleanedId !== currentModelProvider) {
       setSelectedModel('');
+      playgroundModel?.setProvider(cleanedId);
+      playgroundModel?.setModel('');
       setModelOpen(true);
     }
   };

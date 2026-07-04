@@ -921,6 +921,7 @@ describe('useChat forwards clientTools', () => {
           maxSteps: 5,
           instructions: 'use the per-send tool',
           temperature: 0.2,
+          model: 'openai/gpt-4o',
         },
         requestContext: { userId: 'user-456' } as any,
       });
@@ -942,6 +943,7 @@ describe('useChat forwards clientTools', () => {
     expect(messageCalls[1]?.[0].ifIdle.streamOptions).toEqual(
       expect.objectContaining({
         maxSteps: 5,
+        model: 'openai/gpt-4o',
         instructions: 'use the per-send tool',
         requestContext: { userId: 'user-456' },
         clientTools: perSendClientTools,
@@ -964,12 +966,14 @@ describe('useChat forwards clientTools', () => {
       await result.current.sendMessage({
         mode: 'stream',
         message: 'hi',
+        modelSettings: { model: 'anthropic/claude-3-5-sonnet-latest' },
       });
     });
 
     expect(streamMock).toHaveBeenCalledTimes(1);
-    const calls = streamMock.mock.calls as unknown as Array<[unknown, { clientTools: unknown }]>;
+    const calls = streamMock.mock.calls as unknown as Array<[unknown, { clientTools: unknown; model?: string }]>;
     expect(calls[0]?.[1].clientTools).toBe(clientTools);
+    expect(calls[0]?.[1].model).toBe('anthropic/claude-3-5-sonnet-latest');
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(sendSignalMock).not.toHaveBeenCalled();
   });

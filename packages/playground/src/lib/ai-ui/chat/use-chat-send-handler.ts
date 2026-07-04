@@ -236,6 +236,7 @@ export const useChatSendHandler = ({
       const controller = new AbortController();
       abortControllerRef.current = controller;
       const requestContextInstance = buildRequestContext(deps);
+      const selectedModel = typeof deps.modelSettingsArgs.model === 'string' ? deps.modelSettingsArgs.model : undefined;
 
       try {
         if (deps.chatWithNetwork) {
@@ -243,6 +244,7 @@ export const useChatSendHandler = ({
             message,
             mode: 'network',
             coreUserMessages: attachments,
+            model: selectedModel,
             requestContext: requestContextInstance,
             threadId: deps.threadId,
             modelSettings: deps.modelSettingsArgs,
@@ -263,6 +265,7 @@ export const useChatSendHandler = ({
             message,
             mode: 'generate',
             coreUserMessages: attachments,
+            model: selectedModel,
             requestContext: requestContextInstance,
             threadId: deps.threadId,
             modelSettings: deps.modelSettingsArgs,
@@ -277,6 +280,7 @@ export const useChatSendHandler = ({
             message,
             mode: 'stream',
             coreUserMessages: attachments,
+            model: selectedModel,
             requestContext: requestContextInstance,
             threadId: deps.threadId,
             modelSettings: deps.modelSettingsArgs,
