@@ -33,6 +33,10 @@ function createWorkflowStepOutput(usage: Record<string, unknown>): WorkflowStrea
   } as WorkflowStreamEvent;
 }
 
+function timeoutAfter(ms: number): Promise<'timeout'> {
+  return new Promise(resolve => setTimeout(() => resolve('timeout'), ms));
+}
+
 describe('WorkflowRunOutput', () => {
   it('should sum cacheCreationInputTokens across workflow step outputs', async () => {
     const output = new WorkflowRunOutput({
@@ -69,5 +73,33 @@ describe('WorkflowRunOutput', () => {
     expect(usage.outputTokens).toBe(1500);
     expect(usage.cachedInputTokens).toBe(12686);
     expect((usage as { cacheCreationInputTokens?: number }).cacheCreationInputTokens).toBe(5268);
+  });
+
+  it('should settle usage and result promises when a resumed stream closes', async () => {
+    const output = new WorkflowRunOutput({
+      runId: 'run-1',
+      workflowId: 'workflow-1',
+      stream: createWorkflowStream([]),
+    });
+
+    output.resume(
+      createWorkflowStream([
+        createWorkflowStepOutput({
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        }),
+      ]),
+    );
+
+    const usage = await Promise.race([output.usage, timeoutAfter(100)]);
+
+    expect(usage).not.toBe('timeout');
+    expect(usage).toMatchObject({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+    });
+    await expect(output.result).rejects.toThrow("promise 'result' was not resolved or rejected when stream finished");
   });
 });

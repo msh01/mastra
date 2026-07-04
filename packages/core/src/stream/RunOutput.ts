@@ -116,40 +116,7 @@ export class WorkflowRunOutput<
             }
           },
           close() {
-            if (self.#status === 'running') {
-              self.#status = 'success';
-            }
-
-            self.#emitter.emit('chunk', {
-              type: 'workflow-finish',
-              runId: self.runId,
-              from: ChunkFrom.WORKFLOW,
-              payload: {
-                workflowStatus: self.#status,
-                metadata: self.#streamError
-                  ? {
-                      error: self.#streamError,
-                      errorMessage: self.#streamError?.message,
-                    }
-                  : {},
-                output: {
-                  usage: self.#usageCount,
-                },
-                // Include tripwire data when status is 'tripwire'
-                ...(self.#status === 'tripwire' && self.#tripwireData ? { tripwire: self.#tripwireData } : {}),
-              },
-            });
-
-            self.#delayedPromises.usage.resolve(self.#usageCount);
-
-            Object.entries(self.#delayedPromises).forEach(([key, promise]) => {
-              if (promise.status.type === 'pending') {
-                promise.reject(new Error(`promise '${key}' was not resolved or rejected when stream finished`));
-              }
-            });
-
-            self.#streamFinished = true;
-            self.#emitter.emit('finish');
+            self.#finishStream();
           },
         }),
       )
@@ -225,6 +192,43 @@ export class WorkflowRunOutput<
     this.#streamError = error;
   }
 
+  #finishStream() {
+    if (this.#status === 'running') {
+      this.#status = 'success';
+    }
+
+    this.#emitter.emit('chunk', {
+      type: 'workflow-finish',
+      runId: this.runId,
+      from: ChunkFrom.WORKFLOW,
+      payload: {
+        workflowStatus: this.#status,
+        metadata: this.#streamError
+          ? {
+              error: this.#streamError,
+              errorMessage: this.#streamError?.message,
+            }
+          : {},
+        output: {
+          usage: this.#usageCount,
+        },
+        // Include tripwire data when status is 'tripwire'
+        ...(this.#status === 'tripwire' && this.#tripwireData ? { tripwire: this.#tripwireData } : {}),
+      },
+    });
+
+    this.#delayedPromises.usage.resolve(this.#usageCount);
+
+    Object.entries(this.#delayedPromises).forEach(([key, promise]) => {
+      if (promise.status.type === 'pending') {
+        promise.reject(new Error(`promise '${key}' was not resolved or rejected when stream finished`));
+      }
+    });
+
+    this.#streamFinished = true;
+    this.#emitter.emit('finish');
+  }
+
   /**
    * @internal
    */
@@ -292,32 +296,7 @@ export class WorkflowRunOutput<
             }
           },
           close() {
-            if (self.#status === 'running') {
-              self.#status = 'success';
-            }
-
-            self.#emitter.emit('chunk', {
-              type: 'workflow-finish',
-              runId: self.runId,
-              from: ChunkFrom.WORKFLOW,
-              payload: {
-                workflowStatus: self.#status,
-                metadata: self.#streamError
-                  ? {
-                      error: self.#streamError,
-                      errorMessage: self.#streamError?.message,
-                    }
-                  : {},
-                output: {
-                  usage: self.#usageCount,
-                },
-                // Include tripwire data when status is 'tripwire'
-                ...(self.#status === 'tripwire' && self.#tripwireData ? { tripwire: self.#tripwireData } : {}),
-              },
-            });
-
-            self.#streamFinished = true;
-            self.#emitter.emit('finish');
+            self.#finishStream();
           },
         }),
       )
