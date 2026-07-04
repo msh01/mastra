@@ -130,4 +130,56 @@ describe('AgentController signal history rendering', () => {
       },
     ]);
   });
+
+  it('preserves reasoning signatures when rendering persisted assistant thinking', async () => {
+    const { session, memoryStorage, thread } = await createControllerWithThread();
+
+    await memoryStorage.saveMessages({
+      messages: [
+        {
+          id: 'assistant-thinking-1',
+          role: 'assistant',
+          threadId: thread.id,
+          resourceId: 'test-controller',
+          createdAt: new Date('2024-01-01T00:00:00.000Z'),
+          content: {
+            format: 2,
+            content: '',
+            parts: [
+              {
+                type: 'reasoning',
+                reasoning: 'signed thinking',
+                details: [{ type: 'text', text: 'signed thinking', signature: 'sig-from-details' }],
+              },
+              {
+                type: 'reasoning',
+                reasoning: 'direct signature thinking',
+                signature: 'sig-direct',
+              },
+              {
+                type: 'reasoning',
+                reasoning: 'provider options thinking',
+                providerOptions: { anthropic: { signature: 'sig-provider-options' } },
+              },
+              { type: 'text', text: 'final answer' },
+            ],
+          },
+        },
+      ],
+    });
+
+    const messages = await session.thread.listActiveMessages();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      id: 'assistant-thinking-1',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'signed thinking', signature: 'sig-from-details' },
+        { type: 'thinking', thinking: 'direct signature thinking', signature: 'sig-direct' },
+        { type: 'thinking', thinking: 'provider options thinking', signature: 'sig-provider-options' },
+        { type: 'text', text: 'final answer' },
+      ],
+    });
+  });
 });

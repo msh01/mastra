@@ -84,6 +84,41 @@ function validateModes(modes: AgentControllerMode[]): void {
   }
 }
 
+function getReasoningSignature(part: {
+  signature?: unknown;
+  providerOptions?: unknown;
+  providerMetadata?: unknown;
+  details?: unknown;
+  [key: string]: unknown;
+}) {
+  if (typeof part.signature === 'string') {
+    return part.signature;
+  }
+
+  const providerOptionsSignature = (part.providerOptions as { anthropic?: { signature?: unknown } } | undefined)
+    ?.anthropic?.signature;
+  if (typeof providerOptionsSignature === 'string') {
+    return providerOptionsSignature;
+  }
+
+  const providerMetadataSignature = (part.providerMetadata as { anthropic?: { signature?: unknown } } | undefined)
+    ?.anthropic?.signature;
+  if (typeof providerMetadataSignature === 'string') {
+    return providerMetadataSignature;
+  }
+
+  if (Array.isArray(part.details)) {
+    for (const detail of part.details) {
+      const detailSignature = (detail as { signature?: unknown }).signature;
+      if (typeof detailSignature === 'string') {
+        return detailSignature;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Build a user-facing message for a non-success stream finish reason.
  *
@@ -1801,7 +1836,12 @@ export class AgentController<TState = {}> {
           break;
         case 'reasoning':
           if (part.reasoning) {
-            content.push({ type: 'thinking', thinking: part.reasoning });
+            const signature = getReasoningSignature(part);
+            content.push({
+              type: 'thinking',
+              thinking: part.reasoning,
+              ...(signature ? { signature } : {}),
+            });
           }
           break;
         case 'tool-invocation':

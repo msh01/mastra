@@ -924,7 +924,7 @@ export interface AgentControllerMessage {
 
 export type AgentControllerMessageContent =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | { type: 'thinking'; thinking: string; signature?: string }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | {
       type: 'tool_result';
