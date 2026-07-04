@@ -138,9 +138,11 @@ function validateError(
   file: OutputChunk,
   {
     binaryMapData,
+    configuredExternals,
     workspaceMap,
   }: {
     binaryMapData: Record<string, string[]>;
+    configuredExternals: string[];
     logger: IMastraLogger;
     workspaceMap: Map<string, WorkspacePackageInfo>;
   },
@@ -208,6 +210,13 @@ function validateError(
   }
 
   if (errorConfig && moduleName) {
+    if (
+      errorConfig.id === 'DEPLOYER_ANALYZE_TYPE_ERROR' &&
+      configuredExternals.some(external => isDependencyPartOfPackage(moduleName!, external))
+    ) {
+      return;
+    }
+
     throwExternalDependencyError({
       errorId: errorConfig.id,
       moduleName: moduleName!,
@@ -226,12 +235,14 @@ async function validateFile(
     logger,
     workspaceMap,
     stubbedExternals,
+    configuredExternals,
   }: {
     binaryMapData: Record<string, string[]>;
     moduleResolveMapLocation: string;
     logger: IMastraLogger;
     workspaceMap: Map<string, WorkspacePackageInfo>;
     stubbedExternals: string[];
+    configuredExternals: string[];
   },
 ) {
   try {
@@ -263,7 +274,7 @@ async function validateFile(
     }
 
     if (errorToHandle instanceof Error) {
-      validateError(errorToHandle, file, { binaryMapData, logger, workspaceMap });
+      validateError(errorToHandle, file, { binaryMapData, configuredExternals, logger, workspaceMap });
     }
   }
 }
@@ -288,6 +299,7 @@ async function validateOutput(
     projectRoot,
     workspaceMap,
     depsVersionInfo,
+    configuredExternals,
   }: {
     output: (OutputChunk | OutputAsset)[];
     reverseVirtualReferenceMap: Map<string, string>;
@@ -296,6 +308,7 @@ async function validateOutput(
     projectRoot: string;
     workspaceMap: Map<string, WorkspacePackageInfo>;
     depsVersionInfo: Map<string, ExternalDependencyInfo>;
+    configuredExternals: string[];
   },
   logger: IMastraLogger,
 ) {
@@ -358,6 +371,7 @@ async function validateOutput(
       logger,
       workspaceMap,
       stubbedExternals: [...GLOBAL_EXTERNALS, ...DEPS_TO_IGNORE],
+      configuredExternals,
     });
   }
 
@@ -583,6 +597,7 @@ export async function analyzeBundle(
       projectRoot: workspaceRoot || projectRoot,
       workspaceMap,
       depsVersionInfo,
+      configuredExternals: userExternals,
     },
     logger,
   );

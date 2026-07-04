@@ -32,7 +32,104 @@ describe('workspace path normalization (issue #13022)', () => {
 });
 
 describe('external dependency versions', () => {
-  it('resolves an external dependency version from the bundled workspace importer', async () => {
+  it.sequential('does not fail analysis when a transitive dependency listed in bundler externals throws', async () => {
+    await mkdir(tempRoot, { recursive: true });
+    const tempDir = await mkdtemp(join(tempRoot, 'mastra-throwing-transitive-external-'));
+    tempDirs.push(tempDir);
+
+    const appDir = join(tempDir, 'apps', 'app');
+    const entryFile = join(appDir, 'index.ts');
+    const outputDir = join(appDir, '.mastra', '.build');
+    const importerPackageDir = join(appDir, 'node_modules', 'cjs-importer');
+    const throwingPackageDir = join(appDir, 'node_modules', 'throwing-transitive');
+
+    await mkdir(outputDir, { recursive: true });
+    await mkdir(importerPackageDir, { recursive: true });
+    await mkdir(throwingPackageDir, { recursive: true });
+    await writeFile(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'throwing-transitive-test-workspace', version: '1.0.0' }),
+    );
+    await writeFile(join(tempDir, 'pnpm-workspace.yaml'), `packages:\n  - apps/*\n`);
+    await writeFile(
+      join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'throwing-transitive-test-project',
+        version: '1.0.0',
+        type: 'module',
+        dependencies: {
+          'cjs-importer': '1.0.0',
+          'throwing-transitive': '2.0.0',
+        },
+      }),
+    );
+    await writeFile(
+      join(importerPackageDir, 'package.json'),
+      JSON.stringify({
+        name: 'cjs-importer',
+        version: '1.0.0',
+        type: 'module',
+        main: './index.js',
+        module: './index.js',
+        exports: './index.js',
+        dependencies: {
+          'throwing-transitive': '2.0.0',
+        },
+      }),
+    );
+    await writeFile(
+      join(importerPackageDir, 'index.js'),
+      `
+        import transitive from 'throwing-transitive';
+
+        export const value = transitive.value;
+      `,
+    );
+    await writeFile(
+      join(throwingPackageDir, 'package.json'),
+      JSON.stringify({ name: 'throwing-transitive', version: '2.0.0', main: './index.cjs' }),
+    );
+    await writeFile(
+      join(throwingPackageDir, 'index.cjs'),
+      `
+        throw new TypeError('this transitive package should stay external');
+        module.exports = { value: 'external' };
+      `,
+    );
+    await writeFile(
+      entryFile,
+      `
+        import { value } from 'cjs-importer';
+
+        export const result = value;
+      `,
+    );
+
+    const originalCwd = process.cwd();
+    process.chdir(tempDir);
+    try {
+      const result = await analyzeBundle(
+        [entryFile],
+        entryFile,
+        {
+          outputDir,
+          projectRoot: appDir,
+          platform: 'node',
+          bundlerOptions: {
+            externals: ['throwing-transitive'],
+            enableSourcemap: false,
+          },
+        },
+        noopLogger,
+      );
+
+      expect(result).toBeDefined();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  }, 15000);
+
+  it.sequential('resolves an external dependency version from the bundled workspace importer', async () => {
     await mkdir(tempRoot, { recursive: true });
     const tempDir = await mkdtemp(join(tempRoot, 'mastra-importer-version-'));
     tempDirs.push(tempDir);
@@ -105,7 +202,7 @@ describe('external dependency versions', () => {
     }
   }, 15000);
 
-  it('resolves an external dependency version from a dynamic import in a bundled workspace package', async () => {
+  it.sequential('resolves an external dependency version from a dynamic import in a bundled workspace package', async () => {
     await mkdir(tempRoot, { recursive: true });
     const tempDir = await mkdtemp(join(tempRoot, 'mastra-dynamic-importer-version-'));
     tempDirs.push(tempDir);
