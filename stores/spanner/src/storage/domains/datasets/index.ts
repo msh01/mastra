@@ -34,7 +34,7 @@ import type {
   UpdateDatasetItemInput,
   DeleteDatasetItemInput,
 } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -432,7 +432,7 @@ export class DatasetsSpanner extends DatasetsStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -673,7 +673,7 @@ export class DatasetsSpanner extends DatasetsStorage {
               updatedAt: now,
             };
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -773,7 +773,7 @@ export class DatasetsSpanner extends DatasetsStorage {
               updatedAt: now,
             };
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -837,7 +837,7 @@ export class DatasetsSpanner extends DatasetsStorage {
             await this.insertVersionRow(tx, args.datasetId, newVersion, now);
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -1148,7 +1148,7 @@ export class DatasetsSpanner extends DatasetsStorage {
               updatedAt: now,
             }));
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -1211,7 +1211,7 @@ export class DatasetsSpanner extends DatasetsStorage {
             await this.insertVersionRow(tx, input.datasetId, newVersion, now);
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

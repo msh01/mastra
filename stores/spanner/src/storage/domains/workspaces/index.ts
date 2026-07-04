@@ -24,7 +24,7 @@ import type {
   ListWorkspaceVersionsOutput,
   WorkspaceVersion,
 } from '@mastra/core/storage/domains/workspaces';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -237,7 +237,7 @@ export class WorkspacesSpanner extends WorkspacesStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -389,7 +389,7 @@ export class WorkspacesSpanner extends WorkspacesStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

@@ -25,7 +25,7 @@ import type {
   UpdateExperimentInput,
   UpdateExperimentResultInput,
 } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -453,7 +453,7 @@ export class ExperimentsSpanner extends ExperimentsStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

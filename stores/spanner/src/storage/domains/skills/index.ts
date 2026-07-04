@@ -25,7 +25,7 @@ import type {
   ListSkillVersionsOutput,
   SkillVersion,
 } from '@mastra/core/storage/domains/skills';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -258,7 +258,7 @@ export class SkillsSpanner extends SkillsStorage {
             // the transaction (and its row locks) stay pending on the server
             // until explicitly released. Without this rollback, a failed
             // create() blocks subsequent reads/writes against the same rows.
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -355,7 +355,7 @@ export class SkillsSpanner extends SkillsStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

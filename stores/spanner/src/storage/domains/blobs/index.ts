@@ -2,7 +2,7 @@ import type { Database } from '@google-cloud/spanner';
 import { ErrorCategory, ErrorDomain, MastraError } from '@mastra/core/error';
 import { BlobStore, createStorageErrorId, SKILL_BLOBS_SCHEMA, TABLE_SKILL_BLOBS } from '@mastra/core/storage';
 import type { CreateIndexOptions, StorageBlobEntry } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -200,7 +200,7 @@ export class BlobsSpanner extends BlobStore {
             }
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

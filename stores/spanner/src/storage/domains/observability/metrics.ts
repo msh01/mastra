@@ -27,8 +27,11 @@ import type {
   MetricDistinctColumn,
   MetricRecord,
 } from '@mastra/core/storage';
+import { rollbackTransaction } from '../../db';
 import type { SpannerInitMode } from '../../db';
 import { quoteIdent } from '../../db/utils';
+
+type LoggerWithWarn = { warn?: (...args: any[]) => unknown };
 
 /** Physical table name. Not exposed by `@mastra/core/storage` (no TABLE_METRICS
  *  constant exists), so the Spanner adapter owns the name itself. Follows the
@@ -750,7 +753,11 @@ function combineWhere(
  *     and the server rejects it (same root cause as the DML path).
  *   - `null` is passed through and respected per the column's nullability.
  */
-export async function batchCreateMetrics(database: Database, args: BatchCreateMetricsArgs): Promise<void> {
+export async function batchCreateMetrics(
+  database: Database,
+  args: BatchCreateMetricsArgs,
+  logger?: LoggerWithWarn,
+): Promise<void> {
   if (args.metrics.length === 0) return;
 
   const now = new Date();
@@ -810,7 +817,7 @@ export async function batchCreateMetrics(database: Database, args: BatchCreateMe
           tx.insert(TABLE_AI_METRICS, rows);
           await tx.commit();
         } catch (err) {
-          await tx.rollback().catch(() => {});
+          await rollbackTransaction(tx, logger, 'batchCreateMetrics failure');
           throw err;
         }
       });
@@ -1482,7 +1489,7 @@ export async function getMetricLabelValues(
 }
 
 /** Wipes every metric row. Intended for `dangerouslyClearAll()`. */
-export async function clearMetrics(database: Database): Promise<void> {
+export async function clearMetrics(database: Database, logger?: LoggerWithWarn): Promise<void> {
   if (!(await tableExists(database, TABLE_AI_METRICS))) return;
   await database.runTransactionAsync(async (tx: Transaction) => {
     try {
@@ -1491,7 +1498,7 @@ export async function clearMetrics(database: Database): Promise<void> {
       });
       await tx.commit();
     } catch (err) {
-      await tx.rollback().catch(() => {});
+      await rollbackTransaction(tx, logger, 'clearMetrics failure');
       throw err;
     }
   });

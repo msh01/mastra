@@ -18,7 +18,7 @@ import type {
   ScheduleTriggerListOptions,
   ScheduleUpdate,
 } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -186,7 +186,11 @@ export class SchedulesSpanner extends SchedulesStorage {
     if (this.targetWorkflowIdColumnAvailable !== null) return this.targetWorkflowIdColumnAvailable;
     try {
       this.targetWorkflowIdColumnAvailable = await this.db.hasColumn(TABLE_SCHEDULES, 'target_workflow_id');
-    } catch {
+    } catch (error) {
+      this.logger?.warn?.(
+        'Failed to check schedules target_workflow_id column; target workflow filtering will use JSON fallback',
+        error,
+      );
       this.targetWorkflowIdColumnAvailable = false;
     }
     return this.targetWorkflowIdColumnAvailable;
@@ -243,7 +247,7 @@ export class SchedulesSpanner extends SchedulesStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -485,7 +489,7 @@ export class SchedulesSpanner extends SchedulesStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

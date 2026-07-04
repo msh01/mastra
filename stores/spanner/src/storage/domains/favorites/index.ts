@@ -18,7 +18,7 @@ import type {
   StorageListFavoritesInput,
   TABLE_NAMES,
 } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 
@@ -146,7 +146,7 @@ export class FavoritesSpanner extends FavoritesStorage {
             favoriteCount = (await this.readEntityCount(tx, entityTable, entityId)) ?? 0;
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -205,7 +205,7 @@ export class FavoritesSpanner extends FavoritesStorage {
             favoriteCount = (await this.readEntityCount(tx, entityTable, entityId)) ?? 0;
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -333,7 +333,7 @@ export class FavoritesSpanner extends FavoritesStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

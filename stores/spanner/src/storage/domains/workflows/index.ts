@@ -15,7 +15,7 @@ import type {
   CreateIndexOptions,
 } from '@mastra/core/storage';
 import type { StepResult, WorkflowRunState } from '@mastra/core/workflows';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -163,7 +163,11 @@ export class WorkflowsSpanner extends WorkflowsStorage {
     if (this.statusColumnAvailable !== null) return this.statusColumnAvailable;
     try {
       this.statusColumnAvailable = await this.db.hasColumn(TABLE_WORKFLOW_SNAPSHOT, 'snapshotStatus');
-    } catch {
+    } catch (error) {
+      this.logger?.warn?.(
+        'Failed to check workflow snapshotStatus column; status filtering will fall back to JSON_VALUE scan',
+        error,
+      );
       this.statusColumnAvailable = false;
     }
     return this.statusColumnAvailable;
@@ -251,7 +255,7 @@ export class WorkflowsSpanner extends WorkflowsStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -368,7 +372,7 @@ export class WorkflowsSpanner extends WorkflowsStorage {
             mergedContext = snapshot.context;
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -436,7 +440,7 @@ export class WorkflowsSpanner extends WorkflowsStorage {
             });
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

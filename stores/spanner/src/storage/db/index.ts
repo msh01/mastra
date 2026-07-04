@@ -22,6 +22,20 @@ import { getColumnDef, getSpannerParamType, getSpannerType, isInOperator, quoteI
 // Re-export the shared types for downstream consumers
 export type { CreateIndexOptions, IndexInfo, StorageIndexStats };
 
+type LoggerWithWarn = { warn?: (...args: any[]) => unknown };
+
+export async function rollbackTransaction(
+  tx: Pick<Transaction, 'rollback'>,
+  logger: LoggerWithWarn | undefined,
+  context: string,
+): Promise<void> {
+  try {
+    await tx.rollback();
+  } catch (error) {
+    logger?.warn?.(`Failed to rollback Spanner transaction after ${context}:`, error);
+  }
+}
+
 /**
  * Controls whether `init()` is allowed to apply schema changes.
  *
@@ -370,7 +384,7 @@ export class SpannerDB extends MastraBase {
         } catch (err) {
           // The Spanner client does NOT auto-rollback when the runFn throws
           // explicitly release the transaction so its row locks are freed.
-          await tx.rollback().catch(() => {});
+          await rollbackTransaction(tx, this.logger, 'transaction failure');
           throw err;
         }
       });
@@ -961,7 +975,7 @@ export class SpannerDB extends MastraBase {
           } catch (err) {
             // The Spanner client does NOT auto-rollback when the runFn throws
             // explicitly release the transaction so its row locks are freed.
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -996,7 +1010,7 @@ export class SpannerDB extends MastraBase {
             }
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),
@@ -1034,7 +1048,7 @@ export class SpannerDB extends MastraBase {
             }
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

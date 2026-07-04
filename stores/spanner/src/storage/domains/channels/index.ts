@@ -8,7 +8,7 @@ import {
   TABLE_SCHEMAS,
 } from '@mastra/core/storage';
 import type { ChannelConfig, ChannelInstallation, CreateIndexOptions } from '@mastra/core/storage';
-import { SpannerDB, resolveSpannerConfig } from '../../db';
+import { SpannerDB, resolveSpannerConfig, rollbackTransaction } from '../../db';
 import type { SpannerDomainConfig } from '../../db';
 import { quoteIdent } from '../../db/utils';
 import { transformFromSpannerRow } from '../utils';
@@ -196,7 +196,7 @@ export class ChannelsSpanner extends ChannelsStorage {
             }
             await tx.commit();
           } catch (err) {
-            await tx.rollback().catch(() => {});
+            await rollbackTransaction(tx, this.logger, 'transaction failure');
             throw err;
           }
         }),

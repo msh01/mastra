@@ -199,7 +199,7 @@ export class ObservabilitySpanner extends ObservabilityStorage {
     await this.db.clearTable({ tableName: TABLE_SPANS });
     // Only touch the metrics table when we actually own it.
     if (!this.disableMetrics) {
-      await metricsOps.clearMetrics(this.database);
+      await metricsOps.clearMetrics(this.database, this.logger);
     }
   }
 
@@ -646,7 +646,7 @@ export class ObservabilitySpanner extends ObservabilityStorage {
 
   override async batchCreateMetrics(args: BatchCreateMetricsArgs): Promise<void> {
     if (this.disableMetrics) throw this.metricsDisabledError('BATCH_CREATE_METRICS');
-    return metricsOps.batchCreateMetrics(this.database, args);
+    return metricsOps.batchCreateMetrics(this.database, args, this.logger);
   }
 
   override async listMetrics(args: ListMetricsArgs): Promise<ListMetricsResponse> {
